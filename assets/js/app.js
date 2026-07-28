@@ -1,4 +1,4 @@
-/* Point d'entrée : shell, navigation, sélecteur de profil, thème. */
+/* K7 — point d'entrée : shell, navigation, sélecteur de profil, thème. */
 
 import { h, mount, icon, popMenu, toast } from './core/util.js';
 import * as store from './core/store.js';
@@ -26,9 +26,10 @@ let outlet = null;
 
 /* ------------------------------- Shell ---------------------------------- */
 function buildShell() {
-  const logo = h('div.logo');
-  logo.innerHTML = `<svg viewBox="0 0 40 40" fill="none">
-    <path d="M9 6h6v11.5L27 6h8L21.5 19.5 35 34h-8.5L15 22v12H9z" fill="#fff"/></svg>`;
+  const logo = h('div.logo', { title: 'K7' });
+  logo.innerHTML = `<svg viewBox="0 0 50 40" fill="none" aria-label="K7">
+    <path d="M3 6h6v11.5L21 6h8L15.5 19.5 29 34h-8.5L9 22v12H3z" fill="#fff"/>
+    <path d="M33 6h14v4.4L39.6 34h-6.2l7.3-23.2H33z" fill="#fff" opacity=".9"/></svg>`;
 
   const nav = h('nav.sidebar', {}, logo);
   for (const v of VIEWS) {
@@ -109,7 +110,7 @@ window.addEventListener('hashchange', () => navigate(location.hash.slice(1) || '
   } catch (e) {
     document.body.innerHTML = `<div style="padding:40px;font-family:sans-serif">
       <h2>Stockage indisponible</h2>
-      <p>Ce navigateur bloque IndexedDB (navigation privée ?). Setlist Studio a besoin du stockage local pour fonctionner.</p></div>`;
+      <p>Ce navigateur bloque IndexedDB (navigation privée ?). K7 a besoin du stockage local pour fonctionner.</p></div>`;
     return;
   }
   buildShell();

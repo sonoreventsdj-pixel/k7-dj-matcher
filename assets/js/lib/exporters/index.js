@@ -105,7 +105,7 @@ export function printDocument({ title, subtitle, sections, footer }) {
       <tbody>${s.rows.map((r) => `<tr>${r.map((c, i) => `<td class="${s.columns[i]?.num ? 'num' : ''}">${c ?? ''}</td>`).join('')}</tr>`).join('')}</tbody></table>`
       : '<div class="note">Aucun élément.</div>'}
     `).join('')}
-    <footer>${esc(footer || '')} — généré le ${fmtDate(Date.now())} par Setlist Studio</footer>
+    <footer>${esc(footer || '')} — généré le ${fmtDate(Date.now())} par K7</footer>
     </body></html>`;
 
   const w = window.open('', '_blank');

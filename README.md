@@ -1,4 +1,6 @@
-# Setlist Studio
+# K7
+
+> La cassette. Outil interne Sonor Events — en ligne sur https://k7-dj.netlify.app
 
 Outil interne (Kévin + Andy — Sonor Events) pour :
 
@@ -125,7 +127,7 @@ Spotify n'autorise pas la lecture d'une playlist sans identification. On utilise
 1. Aller sur <https://developer.spotify.com/dashboard> et **créer une app** (gratuit).
 2. Dans **Redirect URIs**, coller **exactement** l'URL de l'application, par exemple :
    - en local : `http://localhost:8000/`
-   - en ligne : `https://setlist-studio.pages.dev/`
+   - en ligne : `https://k7-dj.netlify.app/`
    (l'URL exacte à utiliser est affichée dans **Réglages → Connexion Spotify**)
 3. Cocher **Web API**, enregistrer, copier le **Client ID**.
 4. Dans l'app : **Réglages → Connexion Spotify** → coller le Client ID → **Enregistrer** →
@@ -159,7 +161,7 @@ Le projet est un site statique : **aucun build, aucune variable d'environnement*
    - Framework preset : **None**
    - Build command : *(vide)*
    - Build output directory : **`/`**
-4. Déployer → URL du type `https://setlist-studio.pages.dev`.
+4. Déployer → URL du type `https://k7.pages.dev`.
 5. Reporter cette URL dans les **Redirect URIs** de l'app Spotify.
 
 ### Netlify

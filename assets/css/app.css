@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Setlist Studio — layout applicatif + composants métier
+   K7 — layout applicatif + composants métier
    ========================================================================== */
 
 /* ------------------------------ Shell ----------------------------------- */
@@ -11,7 +11,7 @@
   display: flex; flex-direction: column; align-items: center; gap: 10px;
   padding: 18px 0; z-index: 50;
 }
-.sidebar .logo { width: 40px; height: 40px; margin-bottom: 16px; flex: 0 0 auto; }
+.sidebar .logo { width: 50px; height: 40px; margin-bottom: 16px; flex: 0 0 auto; }
 .sidebar .logo svg { width: 100%; height: 100%; }
 .nav-item {
   position: relative; width: 46px; height: 46px; border-radius: 14px; border: 0;

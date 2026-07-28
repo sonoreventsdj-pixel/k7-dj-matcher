@@ -2,6 +2,8 @@
    Stores : tracks, setlists, matches, meta.
    L'API est volontairement proche d'un CRUD Supabase pour faciliter la v2. */
 
+// Nom historique de la base : on ne le renomme pas, sinon les données déjà
+// enregistrées par les navigateurs de Kévin et Andy deviendraient invisibles.
 const DB_NAME = 'setlist-studio';
 const DB_VERSION = 2;
 export const STORES = ['tracks', 'setlists', 'matches', 'decisions', 'meta'];

@@ -1,8 +1,8 @@
 {
-  "name": "setlist-studio",
+  "name": "k7",
   "version": "1.0.0",
   "private": true,
-  "description": "Bibliothèque DJ, matching de playlists Spotify/Deezer avec mémoire des versions, et construction de setlists harmoniques.",
+  "description": "K7 — bibliothèque DJ, matching de playlists Spotify/Deezer avec mémoire des versions, et construction de setlists harmoniques.",
   "type": "module",
   "scripts": {
     "start": "python3 -m http.server 8000",

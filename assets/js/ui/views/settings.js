@@ -89,7 +89,7 @@ export function render(root) {
     h('div.card-pad.grid', { style: { gap: '14px' } },
       h('div.row', {},
         btn('Exporter une sauvegarde', { ico: 'download', onClick: async () => {
-          exportJSON(await db.exportAll(), `setlist-studio-${new Date().toISOString().slice(0, 10)}.json`);
+          exportJSON(await db.exportAll(), `k7-sauvegarde-${new Date().toISOString().slice(0, 10)}.json`);
           toast('Sauvegarde téléchargée', 'ok');
         } }),
         btn('Restaurer une sauvegarde', { ico: 'upload', onClick: async () => {
@@ -208,7 +208,7 @@ export function render(root) {
   const about = h('div.card', {},
     h('div.card-head', {}, h('div', {}, h('h2', { text: 'À propos' }))),
     h('div.card-pad', {},
-      h('p.muted.small', { text: 'Setlist Studio — outil interne Sonor Events. Code original, habillage repris de la charte My Projekt. Fonctionne hors ligne : aucune donnée ne quitte ce navigateur.' }),
+      h('p.muted.small', { text: 'K7 — outil interne Sonor Events. Code original, habillage repris de la charte My Projekt. Fonctionne hors ligne : aucune donnée ne quitte ce navigateur.' }),
       h('p.muted-3.small', { style: { marginTop: '8px' }, text: 'v1 — persistance locale (IndexedDB). Le partage cloud Kévin ↔ Andy arrive en v2 via Supabase.' })));
 
   mount(root, h('div.grid', { style: { gap: '16px' } },
