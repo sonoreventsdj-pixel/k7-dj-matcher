@@ -199,3 +199,54 @@ test('énergie : échelle 0-1 de Spotify convertie en 1-10', () => {
   const t = tracksFromCSV('Title,Artist,Energy\nX,Y,0.82');
   assert.equal(t[0].energy, 8);
 });
+
+/* ========================= Liens de playlist ============================ */
+import { detectPlaylist, isShortLink } from '../assets/js/lib/playlist.js';
+
+test('détection des URL de playlist', () => {
+  assert.deepEqual(detectPlaylist('https://www.deezer.com/fr/playlist/1743878062?utm_source=x'),
+    { provider: 'deezer', id: '1743878062' });
+  assert.deepEqual(detectPlaylist('https://deezer.com/playlist/123'), { provider: 'deezer', id: '123' });
+  assert.equal(detectPlaylist('https://www.deezer.com/fr/album/456').kind, 'album');
+
+  assert.equal(detectPlaylist('https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M').provider, 'spotify');
+  assert.equal(detectPlaylist('https://open.spotify.com/intl-fr/playlist/abc123').id, 'abc123');
+  assert.equal(detectPlaylist('spotify:playlist:abc123').id, 'abc123');
+
+  assert.equal(detectPlaylist('https://exemple.com/truc'), null);
+  assert.equal(detectPlaylist(''), null);
+});
+
+test('liens de partage courts reconnus', () => {
+  assert.ok(isShortLink('https://link.deezer.com/s/33Xw8wHpxBdvDuousTkGm'));
+  assert.ok(isShortLink('https://spotify.link/abcdef'));
+  assert.ok(isShortLink('https://deezer.page.link/xyz'));
+  assert.ok(!isShortLink('https://www.deezer.com/fr/playlist/123'));
+  assert.equal(detectPlaylist('https://link.deezer.com/s/33Xw8wHpxBdvDuousTkGm').provider, 'short');
+});
+
+test('fonction Netlify : suit la redirection et filtre les domaines', async () => {
+  const { handler } = await import('../netlify/functions/resolve.mjs');
+  const real = globalThis.fetch;
+  const chain = {
+    'https://link.deezer.com/s/abc': { status: 302, location: 'https://www.deezer.com/fr/playlist/1743878062?utm=1' },
+    'https://www.deezer.com/fr/playlist/1743878062?utm=1': { status: 200, location: null },
+  };
+  globalThis.fetch = async (url) => {
+    const r = chain[url];
+    if (!r) throw new Error('URL inattendue : ' + url);
+    return { status: r.status, headers: { get: (k) => (k === 'location' ? r.location : null) } };
+  };
+  try {
+    const ok = await handler({ httpMethod: 'GET', queryStringParameters: { url: 'https://link.deezer.com/s/abc' } });
+    assert.equal(ok.statusCode, 200);
+    assert.equal(JSON.parse(ok.body).url, 'https://www.deezer.com/fr/playlist/1743878062?utm=1');
+    assert.equal(detectPlaylist(JSON.parse(ok.body).url).id, '1743878062');
+
+    const ko = await handler({ httpMethod: 'GET', queryStringParameters: { url: 'https://mechant.example.com/x' } });
+    assert.equal(ko.statusCode, 403);
+
+    const vide = await handler({ httpMethod: 'GET', queryStringParameters: {} });
+    assert.equal(vide.statusCode, 400);
+  } finally { globalThis.fetch = real; }
+});

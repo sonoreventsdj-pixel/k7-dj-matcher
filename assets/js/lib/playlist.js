@@ -9,9 +9,14 @@
 import * as db from '../core/db.js';
 
 /* ------------------------------ Détection ------------------------------- */
+/** Liens de partage raccourcis : l'identifiant est caché derrière une redirection. */
+const SHORT_LINK = /^https?:\/\/(link\.deezer\.com\/s\/|deezer\.page\.link\/|dzr\.page\.link\/|spotify\.link\/|spoti\.fi\/)/i;
+export const isShortLink = (url) => SHORT_LINK.test(String(url || '').trim());
+
 export function detectPlaylist(url) {
   const u = String(url || '').trim();
   if (!u) return null;
+  if (isShortLink(u)) return { provider: 'short', url: u };
 
   let m = u.match(/open\.spotify\.com\/(?:intl-[a-z]+\/)?playlist\/([A-Za-z0-9]+)/i)
        || u.match(/^spotify:playlist:([A-Za-z0-9]+)$/i);
@@ -214,11 +219,41 @@ async function fetchSpotify({ id, kind }, onProgress) {
   return { name: head.name || 'Playlist Spotify', entries };
 }
 
+/* ------------------------- Liens de partage courts ---------------------- */
+/**
+ * Les liens « Partager » de Deezer et Spotify (link.deezer.com/s/…, spotify.link/…)
+ * cachent l'identifiant derrière une redirection. Le navigateur ne peut pas la suivre
+ * lui-même (CORS). On passe par une petite fonction serverless Netlify, incluse dans
+ * le projet et gratuite ; si elle n'est pas disponible (ouverture en local, autre
+ * hébergeur), on renvoie une erreur explicite avec la marche à suivre.
+ */
+export async function resolveShortLink(url) {
+  try {
+    const res = await fetch('/.netlify/functions/resolve?url=' + encodeURIComponent(url), { signal: AbortSignal.timeout(10000) });
+    if (res.ok) {
+      const { url: finalUrl } = await res.json();
+      if (finalUrl && detectPlaylist(finalUrl)?.provider !== 'short') return finalUrl;
+    }
+  } catch { /* on bascule sur le message d'aide */ }
+
+  const e = new Error('SHORT_LINK');
+  e.shortLink = url;
+  throw e;
+}
+
 /* ------------------------------ Façade ---------------------------------- */
 /** @returns {{provider, name, entries:[{title,artist,album,duration}]}} */
 export async function fetchPlaylist(url, onProgress) {
-  const target = detectPlaylist(url);
+  let target = detectPlaylist(url);
   if (!target) throw new Error('URL non reconnue. Attendu : une playlist Spotify ou Deezer.');
+
+  if (target.provider === 'short') {
+    onProgress?.(0, 0, 'Résolution du lien de partage…');
+    const finalUrl = await resolveShortLink(target.url);
+    target = detectPlaylist(finalUrl);
+    if (!target || target.provider === 'short') throw new Error('Ce lien de partage ne pointe pas vers une playlist.');
+  }
+
   if (target.provider === 'deezer') return { provider: 'deezer', ...(await fetchDeezer(target)) };
   return { provider: 'spotify', ...(await fetchSpotify(target, onProgress)) };
 }

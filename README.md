@@ -54,6 +54,10 @@ Le dédoublonnage (même titre + même artiste) est activé par défaut.
 **Matcher → coller l'URL de la playlist → Lancer le matching.**
 
 - **Deezer** : fonctionne immédiatement, rien à configurer.
+- **Liens de partage courts** (`link.deezer.com/s/…`, `spotify.link/…`) : convertis
+  automatiquement en ligne, grâce à la fonction Netlify `netlify/functions/resolve.mjs`
+  (gratuite, sans dépendance, liste blanche de domaines). En local, l'app affiche la marche
+  à suivre pour récupérer l'URL complète à la main.
 - **Spotify** : une configuration en 2 minutes, une seule fois (voir plus bas).
 - Sans URL, on peut aussi coller une liste de titres ou déposer un fichier
   (bloc « Autre source »).

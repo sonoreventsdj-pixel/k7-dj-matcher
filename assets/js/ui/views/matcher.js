@@ -41,10 +41,19 @@ export function render(root) {
 
 /* ============================== Écran 1 ================================= */
 function formScreen(root) {
+  const urlHint = h('div.small.muted-3', { style: { marginTop: '4px' } });
   const urlInput = h('input.input', {
     placeholder: 'Colle ton lien de playlist (Spotify ou Deezer)',
     value: ui.url,
-    oninput: (e) => { ui.url = e.target.value; },
+    oninput: (e) => {
+      ui.url = e.target.value;
+      const v = e.target.value.trim();
+      const d = v ? playlist.detectPlaylist(v) : null;
+      if (!v) urlHint.textContent = '';
+      else if (!d) urlHint.textContent = 'Lien non reconnu — il doit contenir /playlist/.';
+      else if (d.provider === 'short') urlHint.textContent = 'Lien de partage : il sera converti automatiquement au lancement.';
+      else urlHint.textContent = `Playlist ${d.provider === 'deezer' ? 'Deezer' : 'Spotify'} détectée${d.kind === 'album' ? ' (album)' : ''}.`;
+    },
   });
   const dedupe = h('input', { type: 'checkbox', checked: true });
   const nameInput = h('input.input', { placeholder: 'Nom du match — laissé vide, on reprend le nom de la playlist' });
@@ -136,14 +145,15 @@ function formScreen(root) {
       if (url) {
         try {
           ui.screen = 'running'; ui.progressLabel = 'Lecture de la playlist…'; ui.progress = 0; render(root);
-          const pl = await playlist.fetchPlaylist(url, (n) => {
+          const pl = await playlist.fetchPlaylist(url, (n, total, label) => {
             const el = document.getElementById('match-progress');
-            if (el) el.textContent = `${n} titres récupérés…`;
+            if (el) el.textContent = label || `${n} titres récupérés…`;
           });
           entries = pl.entries; autoName = pl.name;
         } catch (e) {
           ui.screen = 'form'; render(root);
           if (e.message === 'NOT_CONNECTED') toast('Connecte Spotify d\'abord (bouton ci-dessus).', 'err');
+          else if (e.message === 'SHORT_LINK') shortLinkHelp(e.shortLink);
           else toast(e.message, 'err');
           return;
         }
@@ -167,12 +177,30 @@ function formScreen(root) {
         h('div.sub', { text: 'Colle l\'URL d\'une playlist Spotify ou Deezer publique : on te dit ce que tu as déjà, sous quelle version, et ce qu\'il reste à récupérer.' })),
       store.state.matches.length ? btn('Matchs enregistrés', { sm: true, onClick: () => document.dispatchEvent(new CustomEvent('nav', { detail: 'sessions' })) }) : null),
     h('div.card-pad.grid', { style: { gap: '18px' } },
-      h('div.field', {}, h('span.label', { text: 'URL de la playlist' }), urlInput, spotifyBox),
+      h('div.field', {}, h('span.label', { text: 'URL de la playlist' }), urlInput, urlHint, spotifyBox),
       h('label.check', {}, dedupe, 'Supprimer les doublons'),
       h('div.field', {}, h('span.label', { text: 'Bibliothèque DJ' }), libState),
       h('div.field', {}, h('span.label', { text: 'Nom du match (facultatif)' }), nameInput),
       advanced,
       h('div', {}, launch, memoryHint)));
+}
+
+/**
+ * Repli quand un lien de partage court n'a pas pu être résolu automatiquement
+ * (ouverture en local, ou fonction Netlify indisponible).
+ */
+function shortLinkHelp(url) {
+  modal({
+    title: 'Lien de partage à convertir',
+    body: h('div.grid', { style: { gap: '12px' } },
+      h('p.muted', { text: 'Ce lien de partage masque l\'identifiant de la playlist, et le navigateur n\'a pas le droit de suivre la redirection lui-même.' }),
+      h('p', { text: 'Ouvre-le dans un onglet : tu arrives sur la vraie page de la playlist. Copie l\'adresse depuis la barre du navigateur — elle contient /playlist/ suivi d\'un numéro — et recolle-la ici.' }),
+      h('p.muted-3.small', { text: 'Exemple attendu : https://www.deezer.com/fr/playlist/1743878062' })),
+    actions: [
+      { label: 'Fermer' },
+      { label: 'Ouvrir le lien', cls: 'btn-primary', onClick: () => window.open(url, '_blank', 'noopener') },
+    ],
+  });
 }
 
 /* ============================== Écran 2 ================================= */
