@@ -8,7 +8,7 @@ Outil interne (Kévin + Andy — Sonor Events) pour :
 2. **matcher une playlist Spotify ou Deezer** contre cette bibliothèque : ce qu'on a déjà,
    sous quelle version, et ce qu'il reste à récupérer ;
 3. **mémoriser les choix de version** — un titre arbitré une fois est reconnu tout seul les fois suivantes ;
-4. **construire des setlists harmoniques** (roue de Camelot, BPM, énergie) en glisser-déposer.
+4. **exporter des crates Serato** prêtes à charger (principales et alternatives séparées).
 
 Code 100 % original, sans dépendance ni build. Habillage repris de la charte My Projekt.
 Usage privé, non commercial.
@@ -29,8 +29,7 @@ python3 -m http.server 8000
 > modules ES, qui exigent un vrai serveur HTTP (`file://` est bloqué par les navigateurs).
 
 Pour tester immédiatement : **Réglages → Charger le jeu de démonstration**
-(40 morceaux annotés + une setlist), puis **Copier la playlist de démo** et la coller dans
-le Matcher.
+(40 morceaux annotés), puis **Copier la playlist de démo** et la coller dans le Matcher.
 
 ---
 
@@ -42,9 +41,9 @@ le Matcher.
 
 | Source | Fichier à donner | Ce qu'on récupère |
 |---|---|---|
-| **Serato** | `database V2` (dossier `_Serato_` à la racine du disque ou dans `Musique/_Serato_`) | titre, artiste, album, genre, BPM, tonalité, durée, chemin |
+| **Serato** | `database V2` (dossier `_Serato_` à la racine du disque ou dans `Musique/_Serato_`) | titre, artiste, album, genre, BPM, tonalité, durée, **débit (kbps)**, format, chemin |
 | **Serato** | n'importe quel `.crate` (`_Serato_/Subcrates/`) | le contenu d'une crate |
-| **iTunes / Apple Music** | `Bibliothèque.xml` (Fichier → Bibliothèque → Exporter la bibliothèque) | titre, artiste, album, genre, BPM, année, durée, nb de lectures, tonalité si elle est dans les commentaires |
+| **iTunes / Apple Music** | `Bibliothèque.xml` (Fichier → Bibliothèque → Exporter la bibliothèque) | titre, artiste, album, genre, BPM, année, durée, **débit (kbps)**, format, nb de lectures, tonalité si elle est dans les commentaires |
 | **CSV / TSV** | export Spotify, Soundiiz, Exportify, tableur… | en-têtes reconnus automatiquement (FR et EN) |
 | **M3U / M3U8**, **JSON**, **XML** | — | reconnaissance automatique |
 | **Texte collé** | `Artiste - Titre` par ligne | — |
@@ -91,27 +90,31 @@ C'est le point clé : **chaque version validée est retenue**.
 - **Réglages → Mémoire des correspondances** : consulter, exporter en CSV, oublier une décision
   ou tout vider.
 
-### 4. Setlist
+### 4. La qualité audio
 
-Depuis un morceau, l'outil propose les compatibles avec un score sur 100 combinant :
+Le **débit en kbps** est lu à l'import et affiché partout : colonne dédiée dans la
+bibliothèque (avec un filtre « 320 kbps et + », « moins de 192 », « sans perte »…) et badge
+sur chaque candidat du Matcher. Un code couleur signale d'un coup d'œil ce qui est bon
+(vert ≥ 256), moyen (orange ≥ 192) ou à remplacer (rouge en dessous). Les fichiers WAV,
+AIFF, FLAC et ALAC sont marqués « Lossless ».
 
-- **compatibilité harmonique** (roue de Camelot : même clé, ±1, relatif majeur/mineur…) ;
-- **proximité BPM**, tolérance paramétrable en % ou en BPM absolus, avec option demi/double tempo ;
-- **cohérence d'énergie** (1-10), avec bonus si l'énergie monte ;
-- **cohérence de genre** (familles : house, techno, hip-hop, latino, afro…).
-
-Tous les poids sont réglables dans **Réglages → Moteur de compatibilité**.
-L'écran affiche la **courbe d'énergie**, la **suite des tonalités** avec les sauts risqués en
-rouge, et note chaque transition. Réordonnancement par **glisser-déposer**.
+À score de correspondance égal, **la version au meilleur débit est proposée en premier**.
 
 ### 5. Exports
 
-| Depuis | Formats |
+| Lot | Formats |
 |---|---|
-| Matcher | `.m3u8` (principales + alternatives), `.csv` et **PDF** de la liste à récupérer |
-| Setlist | `.csv`, `.m3u8`, **PDF** imprimable format cabine |
-| Bibliothèque | `.csv`, `.m3u8`, **PDF** |
-| Réglages | sauvegarde **JSON** complète (et restauration) |
+| **Versions principales** | `.crate` (Serato) · `.m3u8` · `.csv` · **PDF** |
+| **Alternatives** | `.crate` (Serato) · `.m3u8` · `.csv` · **PDF** |
+| **À récupérer** | `.csv` · **PDF** |
+
+Les trois lots se cochent indépendamment dans le menu ⚙ à côté du bouton *Exporter* : on
+peut par exemple sortir une crate pour les versions principales et une autre pour les
+alternatives, en un seul clic.
+
+**Où déposer une crate ?** Dans `_Serato_/Subcrates/`, puis relancer Serato — elle apparaît
+dans la liste des crates. Seuls les morceaux dont on connaît le chemin de fichier peuvent y
+figurer : c'est le cas si la bibliothèque a été importée depuis `database V2`.
 
 > Les PDF passent par la fenêtre d'impression du navigateur → « Enregistrer au format PDF ».
 > Aucune dépendance, mise en page dédiée, et ça marche aussi sur téléphone.
@@ -140,8 +143,8 @@ Deezer ne demande rien : les playlists publiques sont lues directement.
 ## Équipe
 
 Deux profils, **Kévin** et **Andy**, choisis dans le bandeau du haut.
-Chaque setlist et chaque match porte un propriétaire et un état **partagé** (visible par les
-deux) ou **privé** (visible seulement par son auteur).
+Chaque match porte un propriétaire et un état **partagé** (visible par les deux) ou
+**privé** (visible seulement par son auteur).
 
 En v1 les données vivent dans **le navigateur de chaque poste** : le partage réel entre les deux
 machines se fait par **Réglages → Exporter / Restaurer une sauvegarde**, ou passera par Supabase
@@ -184,22 +187,22 @@ assets/
   css/app.css          layout, composants métier, impression, responsive
   js/app.js            shell, navigation, profils, thème
   js/core/
-    db.js              IndexedDB (tracks, setlists, matches, decisions, meta)
+    db.js              IndexedDB (tracks, matches, decisions, meta)
     store.js           état + persistance, API proche d'un CRUD Supabase
     util.js            helpers DOM, modales, menus, toasts, fichiers, icônes
     seed.js            jeu de démonstration
   js/lib/
-    camelot.js         roue de Camelot, conversions, compatibilité
-    scoring.js         score de compatibilité entre deux morceaux
+    camelot.js         roue de Camelot : conversions entre notations
     matching.js        rapprochement playlist <-> bibliothèque
     memory.js          mémoire des choix de version
     playlist.js        Spotify (PKCE) et Deezer (JSONP)
     parsers/index.js   CSV, texte, M3U, XML iTunes, JSON
     parsers/serato.js  format binaire Serato (database V2, .crate)
     exporters/index.js CSV, M3U8, JSON, documents imprimables
+    exporters/serato.js écriture des crates Serato (.crate)
   js/ui/
-    components.js      badges tonalité/BPM, jauge d'énergie, anneau de score
-    views/*.js         accueil, bibliothèque, matcher, setlist, sessions, réglages
+    components.js      badges tonalité / BPM / débit
+    views/*.js         accueil, bibliothèque, matcher, matchs, réglages
 tests/
   engine.test.mjs      tests unitaires du moteur (node --test)
   e2e.mjs              parcours complet automatisé (Playwright)
@@ -225,9 +228,8 @@ node tests/e2e.mjs
 - **Supabase** (free tier) : authentification Kévin / Andy, vrai partage en temps réel,
   bibliothèque et sessions synchronisées entre les postes. Le store est déjà écrit pour que le
   passage se fasse en remplaçant `core/db.js`.
-- Écriture de **`.crate` Serato** (le format binaire est déjà lu, il reste à l'écrire).
 - **Engine DJ** (base SQLite) et **Rekordbox** — non prioritaires, non utilisés ici.
-- Analyse audio locale pour détecter BPM et tonalité des fichiers sans métadonnées.
+- Analyse audio locale pour détecter BPM, tonalité et débit réels des fichiers.
 - PWA installable, mode hors ligne complet.
 
 ---

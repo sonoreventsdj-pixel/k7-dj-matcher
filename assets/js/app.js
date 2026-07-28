@@ -8,7 +8,6 @@ import * as playlist from './lib/playlist.js';
 import * as HomeView from './ui/views/home.js';
 import * as LibraryView from './ui/views/library.js';
 import * as MatcherView from './ui/views/matcher.js';
-import * as SetlistView from './ui/views/setlist.js';
 import * as SessionsView from './ui/views/sessions.js';
 import * as SettingsView from './ui/views/settings.js';
 
@@ -16,8 +15,7 @@ const VIEWS = [
   { id: 'home', label: 'Accueil', icon: 'home', view: HomeView },
   { id: 'library', label: 'Bibliothèque', icon: 'library', view: LibraryView },
   { id: 'matcher', label: 'Matcher', icon: 'match', view: MatcherView },
-  { id: 'setlist', label: 'Setlist', icon: 'setlist', view: SetlistView },
-  { id: 'sessions', label: 'Sessions', icon: 'sessions', view: SessionsView },
+  { id: 'sessions', label: 'Matchs', icon: 'sessions', view: SessionsView },
   { id: 'settings', label: 'Réglages', icon: 'settings', view: SettingsView },
 ];
 

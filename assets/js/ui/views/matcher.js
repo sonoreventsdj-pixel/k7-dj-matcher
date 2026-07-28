@@ -12,10 +12,10 @@ import * as store from '../../core/store.js';
 import * as memory from '../../lib/memory.js';
 import { parseFile, tracksFromText, tracksFromCSV } from '../../lib/parsers/index.js';
 import { matchPlaylist, summarize } from '../../lib/matching.js';
-import { exportM3U8, toCSV, printShoppingList, slug } from '../../lib/exporters/index.js';
+import { exportM3U8, exportCrate, toCSV, printDocument, printShoppingList, slug } from '../../lib/exporters/index.js';
 import * as playlist from '../../lib/playlist.js';
-import { keyBadge, bpmBadge, btn, stat, emptyState } from '../components.js';
-import { importDialog } from './library.js';
+import { keyBadge, bpmBadge, bitrateBadge, btn, stat, emptyState } from '../components.js';
+import { importDialog, crateToast } from './library.js';
 
 const ui = {
   screen: 'form',
@@ -24,7 +24,8 @@ const ui = {
   progress: 0,
   progressLabel: '',
   url: '',
-  exportFormats: { m3u8: true, csv: false, pdf: true },
+  exportSets: { main: true, alt: false, missing: true },
+  exportFormats: { crate: true, m3u8: false, csv: false, pdf: true },
 };
 
 let session = null;
@@ -281,9 +282,8 @@ function resultsScreen(root) {
       counters,
       h('div.row', { style: { marginBottom: '16px' } },
         btn('Exporter', { variant: 'btn-primary', ico: 'download', onClick: () => doExport() }),
-        btn('', { ico: 'settings', title: 'Paramètres d\'export', onClick: (e) => exportSettings(e.currentTarget) }),
+        btn('', { ico: 'settings', title: 'Paramètres d\'export', onClick: (e) => exportSettings(e.currentTarget, root) }),
         h('div.spacer'),
-        btn('Envoyer vers une setlist', { sm: true, ico: 'arrowRight', onClick: () => toSetlist(root) }),
         btn('Tout confirmer et mémoriser', { sm: true, ico: 'check', onClick: async () => {
           let n = 0;
           for (const r of session.rows) {
@@ -333,6 +333,7 @@ function matchRow(r, index, root, persist) {
         chosen ? h('span.a', { text: chosen.artist || '' }) : null,
         chosen?.camelot ? keyBadge(chosen.camelot, { classic: false }) : null,
         chosen?.bpm ? bpmBadge(chosen.bpm) : null,
+        chosen ? bitrateBadge(chosen, { compact: true }) : null,
       )),
     h('div.match-meta', {},
       r.fromMemory ? h('span.badge.badge-info', { title: 'Choix repris de la mémoire', text: '★ mémorisé' }) : null,
@@ -384,6 +385,7 @@ function candidateList(r, root, persist) {
           h('span.muted.small.truncate', { text: c.track.artist || 'Artiste inconnu' }),
           c.track.camelot ? keyBadge(c.track.camelot, { classic: false }) : null,
           c.track.bpm ? bpmBadge(c.track.bpm) : null,
+          bitrateBadge(c.track, { compact: true }),
           c.track.playCount ? h('span.muted-3.small.mono', { text: `${c.track.playCount} ▶` }) : null,
           h('span.muted-3.small.mono', { text: fmtDur(c.track.duration) }))),
       h('div.score', { style: { color: c.score >= 0.9 ? 'var(--ok)' : c.score >= 0.6 ? 'var(--warn)' : 'var(--text-3)' },
@@ -420,60 +422,111 @@ function candidateList(r, root, persist) {
 }
 
 /* ------------------------------- Exports -------------------------------- */
-function exportSettings(anchor) {
-  const mk = (key, label, hint) => {
-    const cb = h('input', { type: 'checkbox', checked: ui.exportFormats[key],
-      onchange: (e) => { ui.exportFormats[key] = e.target.checked; } });
-    return { raw: h('label.check', {}, cb, h('span', {}, label, hint ? h('span.muted-3.small', { text: ' ' + hint }) : null)) };
-  };
+/** Les trois lots exportables d'un match. */
+function buckets() {
+  const byId = new Map(store.state.tracks.map((t) => [t.id, t]));
+  const main = [], alt = [], missing = [];
+  for (const r of session.rows) {
+    if (r.chosenId && byId.get(r.chosenId)) main.push(byId.get(r.chosenId));
+    else missing.push(r);
+    for (const id of r.altIds || []) if (byId.get(id)) alt.push(byId.get(id));
+  }
+  return { main, alt, missing };
+}
+
+function exportSettings(anchor, root) {
+  const b = buckets();
+  const set = (key, label, count) => ({
+    raw: h('label.check', {},
+      h('input', { type: 'checkbox', checked: ui.exportSets[key],
+        onchange: (e) => { ui.exportSets[key] = e.target.checked; } }),
+      h('span', {}, label, h('span.muted-3.small', { text: ` (${count})` }))),
+  });
+  const fmt = (key, label, hint) => ({
+    raw: h('label.check', {},
+      h('input', { type: 'checkbox', checked: ui.exportFormats[key],
+        onchange: (e) => { ui.exportFormats[key] = e.target.checked; } }),
+      h('span', {}, label, hint ? h('span.muted-3.small', { text: ' ' + hint }) : null)),
+  });
   popMenu(anchor, [
-    { label: 'Principales & alternatives', header: true },
-    mk('m3u8', '.m3u8', '(Serato, iTunes, la plupart des lecteurs)'),
-    { label: 'À récupérer', header: true },
-    mk('csv', '.csv'),
-    mk('pdf', '.pdf'),
+    { label: 'Quoi exporter', header: true },
+    set('main', 'Versions principales', b.main.length),
+    set('alt', 'Alternatives', b.alt.length),
+    set('missing', 'À récupérer', b.missing.length),
+    '-',
+    { label: 'Dans quel format', header: true },
+    fmt('crate', '.crate', '(Serato)'),
+    fmt('m3u8', '.m3u8', '(iTunes, autres lecteurs)'),
+    fmt('csv', '.csv'),
+    fmt('pdf', '.pdf'),
   ]);
 }
 
 function doExport() {
-  const byId = new Map(store.state.tracks.map((t) => [t.id, t]));
-  const picked = [];
-  for (const r of session.rows) {
-    if (r.chosenId && byId.get(r.chosenId)) picked.push(byId.get(r.chosenId));
-    for (const id of r.altIds || []) if (byId.get(id)) picked.push(byId.get(id));
-  }
-  const missing = session.rows.filter((r) => !r.chosenId);
+  const b = buckets();
   const base = slug(session.name);
-  let n = 0;
+  const F = ui.exportFormats, S = ui.exportSets;
 
-  if (ui.exportFormats.m3u8) {
-    if (!picked.length) toast('Aucune correspondance à exporter en M3U8.', 'err');
-    else { exportM3U8(picked, base + '.m3u8'); n++; }
+  if (!S.main && !S.alt && !S.missing) { toast('Choisis au moins un lot (roue crantée).', 'err'); return; }
+  if (!F.crate && !F.m3u8 && !F.csv && !F.pdf) { toast('Choisis au moins un format (roue crantée).', 'err'); return; }
+
+  // Un lot = une liste de morceaux de la bibliothèque
+  const lots = [];
+  if (S.main) lots.push({ key: 'main', label: 'Versions principales', suffix: '', tracks: b.main });
+  if (S.alt) lots.push({ key: 'alt', label: 'Alternatives', suffix: '-alternatives', tracks: b.alt });
+
+  let done = 0;
+  for (const lot of lots) {
+    if (!lot.tracks.length) { toast(`${lot.label} : aucun morceau à exporter.`, 'err'); continue; }
+    if (F.crate) { const r = exportCrate(lot.tracks, `K7 — ${session.name}${lot.suffix ? ' — alternatives' : ''}`); crateToast(r.included, r.skipped); done++; }
+    if (F.m3u8) { exportM3U8(lot.tracks, base + lot.suffix + '.m3u8'); done++; }
+    if (F.csv) {
+      download(base + lot.suffix + '.csv', toCSV(lot.tracks, [
+        { key: 'title', label: 'Titre' }, { key: 'artist', label: 'Artiste' },
+        { key: 'bpm', label: 'BPM' }, { key: 'camelot', label: 'Camelot' },
+        { key: 'bitrate', label: 'Débit (kbps)' }, { key: 'format', label: 'Format' },
+        { key: (t) => fmtDur(t.duration), label: 'Durée' }, { key: 'location', label: 'Fichier' },
+      ]), 'text/csv;charset=utf-8');
+      done++;
+    }
+    if (F.pdf) { printTrackList(lot.label + ' — ' + session.name, lot.tracks); done++; }
   }
-  if (ui.exportFormats.csv) {
-    const csv = toCSV(missing.map((r, i) => ({ i: i + 1, ...r.source })), [
-      { key: 'i', label: '#' }, { key: 'title', label: 'Titre' },
-      { key: 'artist', label: 'Artiste' }, { key: (r) => fmtDur(r.duration), label: 'Durée' },
-    ]);
-    download(base + '-a-recuperer.csv', csv, 'text/csv;charset=utf-8'); n++;
+
+  // Le lot « à récupérer » n'existe pas dans la bibliothèque : CSV / PDF seulement
+  if (S.missing) {
+    if (!b.missing.length) toast('Rien à récupérer : tout est trouvé.', 'ok');
+    else {
+      if (F.csv) {
+        download(base + '-a-recuperer.csv', toCSV(b.missing.map((r, i) => ({ i: i + 1, ...r.source })), [
+          { key: 'i', label: '#' }, { key: 'title', label: 'Titre' },
+          { key: 'artist', label: 'Artiste' }, { key: (r) => fmtDur(r.duration), label: 'Durée' },
+        ]), 'text/csv;charset=utf-8');
+        done++;
+      }
+      if (F.pdf) { printShoppingList(session); done++; }
+      if (!F.csv && !F.pdf) toast('« À récupérer » ne s\'exporte qu\'en CSV ou PDF.', 'err');
+    }
   }
-  if (ui.exportFormats.pdf) { printShoppingList(session); n++; }
-  if (!n) toast('Aucun format sélectionné (roue crantée).', 'err');
+  if (done) toast(`${done} fichier(s) généré(s)`, 'ok');
 }
 
-/* --------------------- Envoi vers le module Setlist --------------------- */
-async function toSetlist(root) {
-  const ids = session.rows.filter((r) => r.chosenId).map((r) => r.chosenId);
-  if (!ids.length) { toast('Aucune correspondance à envoyer.', 'err'); return; }
-  const name = await promptDialog('Créer une setlist', session.name, 'Nom de la setlist');
-  if (!name) return;
-  const sl = store.newSetlist(name);
-  sl.items = ids.map((id) => ({ trackId: id }));
-  sl.notes = `Créée depuis le match « ${session.name} ».`;
-  await store.saveSetlist(sl);
-  await store.setCurrentSetlist(sl.id);
-  toast('Setlist créée', 'ok');
-  document.dispatchEvent(new CustomEvent('nav', { detail: 'setlist' }));
+/** PDF d'une liste de morceaux de la bibliothèque. */
+function printTrackList(title, tracks) {
+  printDocument({
+    title,
+    subtitle: `${tracks.length} morceau(x)`,
+    sections: [{
+      columns: [
+        { label: '#', num: true, width: '5%' }, { label: 'Titre', width: '34%' },
+        { label: 'Artiste', width: '26%' }, { label: 'BPM', num: true },
+        { label: 'Tonalité' }, { label: 'Débit', num: true }, { label: 'Durée', num: true },
+      ],
+      rows: tracks.map((t, i) => [i + 1, `<b>${(t.title || '').replace(/</g, '&lt;')}</b>`,
+        (t.artist || '').replace(/</g, '&lt;'), t.bpm ?? '',
+        t.camelot ? `<span class="k">${t.camelot}</span>` : '',
+        t.bitrate ? `${t.bitrate}` : '', fmtDur(t.duration)]),
+    }],
+  });
 }
 
 export async function openMatch(id) {

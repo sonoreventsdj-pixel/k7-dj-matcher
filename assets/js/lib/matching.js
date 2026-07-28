@@ -136,9 +136,11 @@ function scorePair(q, cand) {
     const d = Math.abs(q.duration - cand.track.duration);
     if (d <= 3) s += 0.07; else if (d <= 12) s += 0.03; else if (d > 90) s -= 0.05;
   }
-  // Départage : morceaux les plus joués
+  // Départage : morceaux les plus joués, puis meilleure qualité audio
   const pc = Number(cand.track.playCount) || 0;
   s += Math.min(0.02, pc / 2000);
+  const br = Number(cand.track.bitrate) || 0;
+  if (br >= 320) s += 0.015; else if (br && br < 192) s -= 0.01;
 
   return Math.max(0, Math.min(1, s));
 }
@@ -170,7 +172,9 @@ export function matchOne(entry, index, { maxCandidates = 6 } = {}) {
     if (s > 0.3) scored.push({ track: cand.track, score: s, sameVariant: eqSet(q.variants, cand.variants) });
   }
 
-  scored.sort((a, b) => b.score - a.score || (Number(b.track.playCount) || 0) - (Number(a.track.playCount) || 0));
+  scored.sort((a, b) => b.score - a.score
+    || (Number(b.track.bitrate) || 0) - (Number(a.track.bitrate) || 0)
+    || (Number(b.track.playCount) || 0) - (Number(a.track.playCount) || 0));
   const candidates = scored.slice(0, maxCandidates);
   const top = candidates[0];
 

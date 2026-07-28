@@ -5,13 +5,13 @@ import {
   fmtDur, num, debounce, icon, popMenu,
 } from '../../core/util.js';
 import * as store from '../../core/store.js';
-import { parseFile, tracksFromCSV, tracksFromText, makeTrack } from '../../lib/parsers/index.js';
+import { parseFile, tracksFromCSV, tracksFromText, makeTrack, quality } from '../../lib/parsers/index.js';
 import { toCamelot, toClassic, CAMELOT_CODES } from '../../lib/camelot.js';
-import { exportTracksCSV, exportM3U8, printDocument, slug } from '../../lib/exporters/index.js';
-import { keyBadge, bpmBadge, energyDots, btn, emptyState } from '../components.js';
+import { exportTracksCSV, exportM3U8, exportCrate, printDocument, slug } from '../../lib/exporters/index.js';
+import { keyBadge, bpmBadge, bitrateBadge, btn, emptyState } from '../components.js';
 
 const ui = {
-  q: '', genre: '', key: '', bpmMin: '', bpmMax: '', energy: '', tag: '',
+  q: '', genre: '', key: '', bpmMin: '', bpmMax: '', tag: '', qual: '',
   sort: 'title', dir: 1, page: 0, pageSize: 50, selected: new Set(),
 };
 
@@ -23,7 +23,7 @@ export function render(root) {
     h('div.card-head', {},
       h('div', {},
         h('h2', { text: 'Bibliothèque' }),
-        h('div.sub', { text: `${store.state.tracks.length} morceau(x) — titre, artiste, BPM, tonalité, genre, énergie, année, tags, notes` })),
+        h('div.sub', { text: `${store.state.tracks.length} morceau(x) — titre, artiste, BPM, tonalité, genre, année, débit, tags, notes` })),
       h('div.row.row-tight',
         {},
         btn('Importer', { variant: 'btn-primary', ico: 'upload', onClick: () => importDialog(root) }),
@@ -79,7 +79,8 @@ function filtersBar(root) {
         oninput: debounce((e) => { ui.bpmMin = e.target.value; render(root); }, 350) }),
       h('input.input', { type: 'number', placeholder: 'BPM max', value: ui.bpmMax,
         oninput: debounce((e) => { ui.bpmMax = e.target.value; render(root); }, 350) }),
-      sel(ui.energy, [1,2,3,4,5,6,7,8,9,10], (v) => ui.energy = v, 'Toute énergie'),
+      sel(ui.qual, ['320 kbps et +', 'Moins de 320', 'Moins de 192', 'Sans perte', 'Débit inconnu'],
+        (v) => ui.qual = v, 'Toute qualité'),
     ),
   );
 }
@@ -94,9 +95,16 @@ export function filtered() {
     if (ui.genre && t.genre !== ui.genre) return false;
     if (ui.key && t.camelot !== ui.key) return false;
     if (ui.tag && !(t.tags || []).includes(ui.tag)) return false;
-    if (ui.energy && Number(t.energy) !== Number(ui.energy)) return false;
     if (ui.bpmMin && (!t.bpm || t.bpm < Number(ui.bpmMin))) return false;
     if (ui.bpmMax && (!t.bpm || t.bpm > Number(ui.bpmMax))) return false;
+    if (ui.qual) {
+      const qy = quality(t);
+      if (ui.qual === '320 kbps et +' && qy.rank < 3) return false;
+      if (ui.qual === 'Moins de 320' && !(t.bitrate && t.bitrate < 320 && qy.level !== 'lossless')) return false;
+      if (ui.qual === 'Moins de 192' && !(t.bitrate && t.bitrate < 192 && qy.level !== 'lossless')) return false;
+      if (ui.qual === 'Sans perte' && qy.level !== 'lossless') return false;
+      if (ui.qual === 'Débit inconnu' && qy.level !== 'unknown') return false;
+    }
     return true;
   });
   const k = ui.sort;
@@ -116,7 +124,7 @@ function tableBlock(root) {
   const list = filtered();
   if (!store.state.tracks.length) {
     return emptyState('Bibliothèque vide',
-      'Importe un export Rekordbox, iTunes, Serato, un CSV, ou colle une liste de titres.',
+      'Importe ton fichier Serato « database V2 », ta bibliothèque iTunes, un CSV, ou colle une liste de titres.',
       btn('Importer une bibliothèque', { variant: 'btn-primary', ico: 'upload', onClick: () => importDialog(root) }));
   }
   if (!list.length) return emptyState('Aucun résultat', 'Aucun morceau ne correspond aux filtres.');
@@ -138,8 +146,8 @@ function tableBlock(root) {
           onchange: (e) => { slice.forEach((t) => e.target.checked ? ui.selected.add(t.id) : ui.selected.delete(t.id)); render(root); },
         }))),
       th('Titre', 'title'), th('Artiste', 'artist'), th('BPM', 'bpm', 'num'),
-      th('Tonalité', 'camelot'), th('Genre', 'genre'), th('Énergie', 'energy'),
-      th('Année', 'year', 'num'), th('Durée', 'duration', 'num'), th('Tags'),
+      th('Tonalité', 'camelot'), th('Genre', 'genre'),
+      th('Année', 'year', 'num'), th('Durée', 'duration', 'num'), th('Débit', 'bitrate'), th('Tags'),
       h('th', { style: { width: '46px' } }, ''),
     )),
     h('tbody', {}, slice.map((t) => trackRow(t, root))),
@@ -184,9 +192,9 @@ function trackRow(t, root) {
     h('td.num', {}, cell(t.bpm, 'bpm', { type: 'number', width: '62px' })),
     h('td', {}, keySelect(t, save)),
     h('td', { style: { minWidth: '110px' } }, cell(t.genre, 'genre')),
-    h('td', {}, energySelect(t, save)),
     h('td.num', {}, cell(t.year, 'year', { type: 'number', width: '62px' })),
     h('td.num.mono.muted', { text: fmtDur(t.duration) }),
+    h('td', {}, bitrateBadge(t)),
     h('td', { style: { minWidth: '120px' } }, cell((t.tags || []).join(', '), 'tags')),
     h('td', {}, btn('', { ico: 'edit', sm: true, title: 'Éditer', onClick: () => editDialog(t, root) })),
   );
@@ -198,16 +206,6 @@ function keySelect(t, save) {
   s.append(h('option', { value: '', text: '—' }));
   for (const c of CAMELOT_CODES) s.append(h('option', { value: c, text: `${c} · ${toClassic(c)}`, selected: t.camelot === c }));
   return s;
-}
-
-function energySelect(t, save) {
-  const box = h('div.row.row-tight');
-  const s = h('select.select', { style: { width: '58px', padding: '5px 6px', fontSize: '12.5px' },
-    onchange: (e) => save({ energy: e.target.value ? Number(e.target.value) : null }) });
-  s.append(h('option', { value: '', text: '—' }));
-  for (let i = 1; i <= 10; i++) s.append(h('option', { value: i, text: i, selected: Number(t.energy) === i }));
-  box.append(s, energyDots(t.energy));
-  return box;
 }
 
 /* ----------------------------- Édition fiche ---------------------------- */
@@ -224,10 +222,6 @@ export function editDialog(track, root) {
   keySel.append(h('option', { value: '', text: '—' }));
   for (const c of CAMELOT_CODES) keySel.append(h('option', { value: c, text: `${c} · ${toClassic(c)}`, selected: t.camelot === c }));
 
-  const energySel = h('select.select');
-  energySel.append(h('option', { value: '', text: '—' }));
-  for (let i = 1; i <= 10; i++) energySel.append(h('option', { value: i, text: i, selected: Number(t.energy) === i }));
-
   const body = h('div.grid', {},
     field('Titre', 'title', { ph: 'Titre du morceau' }),
     field('Artiste', 'artist'),
@@ -236,7 +230,7 @@ export function editDialog(track, root) {
       field('Tonalité (Camelot)', 'camelot', { node: keySel })),
     h('div.cols-2', {},
       field('Genre', 'genre'),
-      field('Énergie (1-10)', 'energy', { node: energySel })),
+      field('Débit (kbps)', 'bitrate', { type: 'number', ph: '320' })),
     h('div.cols-2', {},
       field('Année', 'year', { type: 'number' }),
       field('Durée (m:ss)', 'duration', { node: h('input.input', { value: fmtDur(t.duration) === '—' ? '' : fmtDur(t.duration), placeholder: '3:45' }) })),
@@ -257,10 +251,11 @@ export function editDialog(track, root) {
         const patch = makeTrack({
           id: t.id,
           title: f.title.value, artist: f.artist.value, bpm: f.bpm.value,
-          key: f.camelot.value, genre: f.genre.value, energy: f.energy.value,
+          key: f.camelot.value, genre: f.genre.value, bitrate: f.bitrate.value,
           year: f.year.value, duration: f.duration.value, tags: f.tags.value,
           notes: f.notes.value, owner: t.owner || store.state.profile,
-          playCount: t.playCount, location: t.location, source: t.source, addedAt: t.addedAt,
+          format: t.format, playCount: t.playCount, location: t.location,
+          source: t.source, addedAt: t.addedAt,
         });
         if (!patch.title && !patch.artist) { toast('Il faut au moins un titre.', 'err'); return false; }
         if (track) await store.updateTrack(t.id, patch);
@@ -361,13 +356,28 @@ export function importDialog(root, onDone) {
   });
 }
 
+/** Message après un export Serato : combien de morceaux sans chemin de fichier. */
+export function crateToast(included, skipped) {
+  if (!included.length) {
+    toast('Aucun morceau n\'a de chemin de fichier : impossible de créer la crate. Réimporte ta bibliothèque depuis « database V2 ».', 'err');
+    return;
+  }
+  toast(`Crate créée — ${included.length} morceau(x)` +
+    (skipped.length ? `, ${skipped.length} ignoré(s) faute de chemin de fichier` : '') +
+    '. Dépose-la dans _Serato_/Subcrates puis relance Serato.', 'ok');
+}
+
 /* -------------------------------- Export -------------------------------- */
 function exportMenu(anchor) {
   const list = filtered();
   popMenu(anchor, [
     { label: `Export de ${list.length} morceau(x)`, header: true },
     { label: 'CSV (tableur)', onClick: () => exportTracksCSV(list, 'bibliotheque.csv') },
-    { label: 'M3U8 (Rekordbox, iTunes)', onClick: () => exportM3U8(list, 'bibliotheque.m3u8') },
+    { label: 'Crate Serato (.crate)', onClick: () => {
+      const { included, skipped } = exportCrate(list, 'K7 — Bibliothèque');
+      crateToast(included, skipped);
+    } },
+    { label: 'M3U8 (iTunes, autres lecteurs)', onClick: () => exportM3U8(list, 'bibliotheque.m3u8') },
     { label: 'PDF imprimable', onClick: () => printDocument({
       title: 'Bibliothèque',
       subtitle: `${list.length} morceaux`,
@@ -375,14 +385,14 @@ function exportMenu(anchor) {
         columns: [
           { label: 'Titre', width: '30%' }, { label: 'Artiste', width: '24%' },
           { label: 'BPM', num: true }, { label: 'Tonalité' }, { label: 'Genre' },
-          { label: 'Énergie', num: true }, { label: 'Durée', num: true },
+          { label: 'Débit', num: true }, { label: 'Durée', num: true },
         ],
-        rows: list.map((t) => [t.title, t.artist, t.bpm ?? '', t.camelot ? `${t.camelot} ${toClassic(t.camelot) || ''}` : '', t.genre, t.energy ?? '', fmtDur(t.duration)]),
+        rows: list.map((t) => [t.title, t.artist, t.bpm ?? '', t.camelot ? `${t.camelot} ${toClassic(t.camelot) || ''}` : '', t.genre, t.bitrate ?? '', fmtDur(t.duration)]),
       }],
     }) },
     '-',
     { label: 'Vider la bibliothèque', onClick: async () => {
-      if (!await confirmDialog('Vider la bibliothèque', 'Tous les morceaux seront supprimés. Les setlists seront vidées.')) return;
+      if (!await confirmDialog('Vider la bibliothèque', 'Tous les morceaux seront supprimés. Les matchs enregistrés perdront leurs correspondances.')) return;
       await store.clearLibrary(); toast('Bibliothèque vidée', 'ok');
       document.dispatchEvent(new CustomEvent('nav', { detail: 'library' }));
     } },

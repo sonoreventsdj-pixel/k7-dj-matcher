@@ -124,31 +124,49 @@ await step('rematch : le choix est réappliqué', async () => {
   if (!mem) throw new Error('le choix mémorisé n\'a pas été réappliqué');
 });
 
-await step('setlist : création + suggestions + drag', async () => {
-  await page.click('[data-view=setlist]');
-  await page.waitForTimeout(400);
-  const hasSl = await page.locator('.sl-item').count();
-  if (!hasSl) throw new Error('la setlist de démo est vide');
-  if (!await page.locator('.curve').count()) throw new Error('pas de courbe d\'énergie');
-  if (!await page.locator('.keychain .badge').count()) throw new Error('pas de suite de tonalités');
-  if (!await page.locator('.sugg').count()) throw new Error('pas de suggestions');
-  const first = await page.locator('.sl-item .body .t').first().textContent();
-  await page.locator('.sl-item').nth(2).hover();
-  // réordonnancement via l'API de glisser-déposer
-  await page.locator('.sl-item').first().dragTo(await page.locator('.sl-item').nth(3));
-  await page.waitForTimeout(500);
-  const now = await page.locator('.sl-item .body .t').first().textContent();
-  if (now === first) throw new Error('le glisser-déposer n\'a pas réordonné');
-});
-await shot('setlist');
-
-await step('sessions', async () => {
+await step('matchs enregistrés', async () => {
   await page.click('[data-view=sessions]');
   await page.waitForSelector('.sess');
-  if (!await page.locator('.sess').count()) throw new Error('aucune session');
-  await page.click('button:has-text("Matchs (")');
-  await page.waitForTimeout(300);
   if (!await page.locator('.sess').count()) throw new Error('aucun match enregistré');
+});
+
+await step('débit affiché dans la bibliothèque et les candidats', async () => {
+  await page.click('[data-view=library]');
+  await page.waitForSelector('table.tbl tbody tr');
+  const headers = await page.locator('table.tbl thead th').allTextContents();
+  if (!headers.some((h) => h.includes('Débit'))) throw new Error('pas de colonne Débit');
+  if (headers.some((h) => h.includes('Énergie'))) throw new Error('la colonne Énergie aurait dû disparaître');
+  const badges = await page.locator('table.tbl tbody tr .badge').allTextContents();
+  if (!badges.some((b) => /kbps|Lossless/.test(b))) throw new Error('aucun badge de débit');
+});
+
+await step('export : crate Serato téléchargée', async () => {
+  await page.click('[data-view=matcher]');
+  await page.waitForSelector('.match-row');
+  const dl = page.waitForEvent('download', { timeout: 10000 });
+  await page.click('button[title="Paramètres d\'export"]');
+  await page.waitForSelector('.menu');
+  const labels = await page.locator('.menu').allTextContents();
+  for (const need of ['Versions principales', 'Alternatives', 'À récupérer', '.crate']) {
+    if (!labels.join(' ').includes(need)) throw new Error('option manquante : ' + need);
+  }
+  // ne garder que .crate sur les principales
+  await page.locator('.menu label:has-text(".pdf") input').uncheck();
+  await page.keyboard.press('Escape');
+  await page.mouse.click(5, 5);
+  await page.waitForTimeout(200);
+  await page.click('button:has-text("Exporter")');
+  const file = await dl;
+  const name = file.suggestedFilename();
+  if (!name.endsWith('.crate')) throw new Error('fichier inattendu : ' + name);
+});
+
+await step('le module Setlist a bien disparu', async () => {
+  if (await page.locator('[data-view=setlist]').count()) throw new Error('l\'onglet Setlist est encore là');
+  await page.click('[data-view=settings]');
+  await page.waitForTimeout(400);
+  const txt = await page.locator('body').innerText();
+  if (/Moteur de compatibilité/.test(txt)) throw new Error('le moteur de compatibilité est encore affiché');
 });
 await shot('sessions');
 
@@ -187,14 +205,6 @@ await step('mobile 390px', async () => {
   if (nav.h > 90) throw new Error('la nav mobile ne s\'est pas transformée en barre basse');
 });
 await shot('mobile');
-
-await step('mobile setlist sans débordement', async () => {
-  await page.click('[data-view=setlist]');
-  await page.waitForTimeout(400);
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-  if (overflow > 2) throw new Error('débordement de ' + overflow + 'px');
-});
-await shot('mobile-setlist');
 
 await browser.close();
 

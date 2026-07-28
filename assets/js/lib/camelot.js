@@ -1,4 +1,4 @@
-/* Roue de Camelot : conversion notation classique <-> Camelot, compatibilité.
+/* Roue de Camelot : conversion entre notation classique et Camelot.
    1A..12A = mineurs, 1B..12B = majeurs. */
 
 export const WHEEL = [
@@ -101,42 +101,6 @@ export const parts = (camelot) => {
   if (!c) return null;
   return { n: parseInt(c, 10), letter: c.slice(-1) };
 };
-
-const dist12 = (a, b) => { const d = Math.abs(a - b) % 12; return Math.min(d, 12 - d); };
-
-/**
- * Compatibilité harmonique entre deux tonalités.
- * -> { score 0-100, label, kind }
- */
-export function harmonicScore(fromKey, toKey) {
-  const a = parts(fromKey), b = parts(toKey);
-  if (!a || !b) return { score: 50, label: 'Tonalité inconnue', kind: 'unknown' };
-
-  const dn = dist12(a.n, b.n);
-  const sameLetter = a.letter === b.letter;
-
-  if (dn === 0 && sameLetter) return { score: 100, label: 'Même tonalité', kind: 'same' };
-  if (dn === 0 && !sameLetter) return { score: 88, label: 'Relatif majeur/mineur', kind: 'relative' };
-  if (dn === 1 && sameLetter) {
-    const up = (b.n - a.n + 12) % 12 === 1;
-    return { score: 93, label: up ? '+1 sur la roue (montée)' : '−1 sur la roue (détente)', kind: 'neighbour' };
-  }
-  if (dn === 1 && !sameLetter) return { score: 58, label: 'Diagonale (mix à surveiller)', kind: 'diagonal' };
-  if (dn === 2 && sameLetter) return { score: 68, label: '+2 sur la roue (saut d\'énergie)', kind: 'jump2' };
-  if (dn === 3 && sameLetter) return { score: 48, label: '+3 sur la roue (transition marquée)', kind: 'jump3' };
-  if (dn === 5 && sameLetter) return { score: 40, label: 'Quinte lointaine', kind: 'far' };
-  return { score: Math.max(8, 34 - dn * 3), label: 'Tonalités éloignées', kind: 'clash' };
-}
-
-/** Liste des codes considérés comme mixables depuis `key`. */
-export function compatibleKeys(key) {
-  const p = parts(key);
-  if (!p) return [];
-  const up = (p.n % 12) + 1;
-  const down = ((p.n + 10) % 12) + 1;
-  const other = p.letter === 'A' ? 'B' : 'A';
-  return [p.n + p.letter, up + p.letter, down + p.letter, p.n + other];
-}
 
 /** Couleur indicative pour l'affichage d'une tonalité. */
 export function keyHue(key) {

@@ -1,5 +1,6 @@
 /* Persistance locale — IndexedDB, zéro dépendance.
-   Stores : tracks, setlists, matches, meta.
+   Stores : tracks, matches, decisions, meta.
+   (« setlists » subsiste dans le schéma pour ne pas casser les bases existantes.)
    L'API est volontairement proche d'un CRUD Supabase pour faciliter la v2. */
 
 // Nom historique de la base : on ne le renomme pas, sinon les données déjà

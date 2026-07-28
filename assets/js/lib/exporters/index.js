@@ -3,6 +3,7 @@
 
 import { download, fmtDur, fmtDate } from '../../core/util.js';
 import { toClassic } from '../camelot.js';
+import { buildCrate, crateFilename } from './serato.js';
 
 /* ------------------------------- CSV ------------------------------------ */
 const cell = (v) => {
@@ -24,25 +25,16 @@ export const TRACK_HEADERS = [
   { key: 'camelot', label: 'Camelot' },
   { key: (t) => t.camelot ? toClassic(t.camelot) : (t.key || ''), label: 'Tonalité' },
   { key: 'genre', label: 'Genre' },
-  { key: 'energy', label: 'Énergie' },
   { key: 'year', label: 'Année' },
   { key: (t) => (t.tags || []).join(' | '), label: 'Tags' },
   { key: (t) => fmtDur(t.duration), label: 'Durée' },
+  { key: 'bitrate', label: 'Débit (kbps)' },
+  { key: 'format', label: 'Format' },
   { key: 'notes', label: 'Notes' },
 ];
 
 export function exportTracksCSV(tracks, filename = 'bibliotheque.csv') {
   download(filename, toCSV(tracks, TRACK_HEADERS), 'text/csv;charset=utf-8');
-}
-
-export function exportSetlistCSV(setlist, tracks, filename) {
-  const byId = new Map(tracks.map((t) => [t.id, t]));
-  const rows = setlist.items.map((it, i) => {
-    const t = byId.get(it.trackId) || {};
-    return { pos: i + 1, ...t };
-  });
-  const headers = [{ key: 'pos', label: '#' }, ...TRACK_HEADERS];
-  download(filename || slug(setlist.name) + '.csv', toCSV(rows, headers), 'text/csv;charset=utf-8');
 }
 
 /* ------------------------------- M3U8 ----------------------------------- */
@@ -58,6 +50,17 @@ export function toM3U8(tracks) {
 
 export function exportM3U8(tracks, filename = 'playlist.m3u8') {
   download(filename, toM3U8(tracks), 'audio/x-mpegurl');
+}
+
+/* ---------------------------- Serato .crate ----------------------------- */
+/**
+ * Génère une crate Serato et la télécharge.
+ * @returns { included, skipped } pour prévenir des morceaux sans chemin de fichier.
+ */
+export function exportCrate(tracks, name) {
+  const { blob, included, skipped } = buildCrate(tracks);
+  if (included.length) download(crateFilename(name), blob, 'application/octet-stream');
+  return { included, skipped };
 }
 
 /* ------------------------------- JSON ----------------------------------- */
@@ -122,42 +125,7 @@ function esc(s) {
 export const slug = (s) => String(s || 'export').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
   .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'export';
 
-/* ------------------------ Documents métier prêts ------------------------ */
-export function printSetlist(setlist, tracks, meta = {}) {
-  const byId = new Map(tracks.map((t) => [t.id, t]));
-  const rows = setlist.items.map((it, i) => {
-    const t = byId.get(it.trackId);
-    if (!t) return [i + 1, '<i>Morceau supprimé</i>', '', '', '', ''];
-    return [
-      i + 1,
-      `<b>${esc(t.title)}</b>${t.notes ? `<br><span style="color:#6b6b7b">${esc(t.notes)}</span>` : ''}`,
-      esc(t.artist || ''),
-      t.bpm ? `<span class="b">${t.bpm}</span>` : '',
-      t.camelot ? `<span class="k">${t.camelot}</span>${t.key ? ` ${esc(t.key)}` : ''}` : '',
-      t.energy ?? '',
-      fmtDur(t.duration),
-    ];
-  });
-  const totalSec = setlist.items.reduce((a, it) => a + (byId.get(it.trackId)?.duration || 0), 0);
-  printDocument({
-    title: setlist.name || 'Setlist',
-    subtitle: `${setlist.items.length} morceaux · ${Math.round(totalSec / 60)} min · ${meta.owner || ''}`,
-    sections: [{
-      columns: [
-        { label: '#', num: true, width: '5%' },
-        { label: 'Titre', width: '34%' },
-        { label: 'Artiste', width: '25%' },
-        { label: 'BPM', num: true },
-        { label: 'Tonalité' },
-        { label: 'Énergie', num: true },
-        { label: 'Durée', num: true },
-      ],
-      rows,
-    }],
-    footer: setlist.notes || '',
-  });
-}
-
+/* ------------------------ Document métier prêt -------------------------- */
 export function printShoppingList(matchSession) {
   const missing = matchSession.rows.filter((r) => r.status === 'missing' || !r.chosenId);
   printDocument({

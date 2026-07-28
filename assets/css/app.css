@@ -109,36 +109,6 @@
 .cand-add:hover { border-color: var(--info); color: var(--info); }
 .cand-add.on { background: var(--info); border-color: var(--info); color: #061018; }
 
-/* ------------------------------ Setlist --------------------------------- */
-.setlist-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr); gap: var(--sp-4); align-items: start; }
-
-.sl-item {
-  display: grid; grid-template-columns: 26px 20px 1fr auto; gap: 10px; align-items: center;
-  padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px;
-  background: var(--surface-2); margin-bottom: 7px; cursor: grab;
-}
-.sl-item.dragging { opacity: .4; }
-.sl-item.over { border-color: var(--mp-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--mp-primary) 20%, transparent); }
-.sl-item .handle { color: var(--text-3); cursor: grab; font-size: 14px; text-align: center; }
-.sl-item .pos { color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; text-align: center; }
-.sl-item .body { min-width: 0; }
-.sl-item .body .t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sl-item .body .a { color: var(--text-2); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.trans { display: flex; align-items: center; gap: 8px; padding: 2px 0 6px 58px; font-size: 11.5px; color: var(--text-3); }
-.trans .bar { height: 2px; flex: 1; border-radius: 2px; background: var(--line-strong); max-width: 60px; }
-.trans.good .bar { background: var(--ok); } .trans.good { color: var(--ok); }
-.trans.mid .bar { background: var(--warn); } .trans.mid { color: var(--warn); }
-.trans.bad .bar { background: var(--danger); } .trans.bad { color: var(--danger); }
-
-.sugg { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center;
-  padding: 9px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); margin-bottom: 7px; }
-.sugg .why { font-size: 11px; color: var(--text-3); margin-top: 2px; }
-.ring { width: 38px; height: 38px; flex: 0 0 38px; border-radius: 999px; display: grid; place-items: center;
-  font-size: 11.5px; font-weight: 700; color: var(--text); }
-
-.curve { width: 100%; height: 130px; display: block; }
-.keychain { display: flex; flex-wrap: wrap; gap: 5px; }
-
 /* ------------------------------ Sessions -------------------------------- */
 .sess { display: flex; align-items: center; gap: 12px; padding: 13px 15px; border: 1px solid var(--line);
   border-radius: 14px; background: var(--surface-2); margin-bottom: 8px; }
@@ -162,7 +132,6 @@
 
 /* ------------------------------ Responsive ------------------------------ */
 @media (max-width: 1080px) {
-  .setlist-grid { grid-template-columns: 1fr; }
   .cols-3 { grid-template-columns: 1fr; }
 }
 @media (max-width: 780px) {

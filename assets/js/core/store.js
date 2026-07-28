@@ -2,7 +2,6 @@
 
 import * as db from './db.js';
 import { uid } from './util.js';
-import { DEFAULT_RULES } from '../lib/scoring.js';
 
 export const PROFILES = [
   { id: 'kevin', name: 'Kévin', initials: 'K', cls: 'kevin' },
@@ -13,11 +12,8 @@ export const state = {
   ready: false,
   theme: 'dark',
   profile: 'kevin',
-  rules: { ...DEFAULT_RULES },
   tracks: [],
-  setlists: [],
   matches: [],
-  currentSetlistId: null,
   currentMatchId: null,
 };
 
@@ -27,18 +23,15 @@ export function emit(evt = 'change') { for (const fn of listeners) fn(evt, state
 
 /* ------------------------------ Chargement ------------------------------ */
 export async function init() {
-  const [tracks, setlists, matches, theme, profile, rules, curSl, curMa] = await Promise.all([
-    db.all('tracks'), db.all('setlists'), db.all('matches'),
+  const [tracks, matches, theme, profile, curMa] = await Promise.all([
+    db.all('tracks'), db.all('matches'),
     db.getMeta('theme', null), db.getMeta('profile', 'kevin'),
-    db.getMeta('rules', null), db.getMeta('currentSetlistId', null), db.getMeta('currentMatchId', null),
+    db.getMeta('currentMatchId', null),
   ]);
   state.tracks = tracks;
-  state.setlists = setlists.sort((a, b) => b.updatedAt - a.updatedAt);
   state.matches = matches.sort((a, b) => b.updatedAt - a.updatedAt);
   state.theme = theme || 'dark';   // sombre par défaut, comme l'application My Projekt
   state.profile = profile || 'kevin';
-  state.rules = { ...DEFAULT_RULES, ...(rules || {}) };
-  state.currentSetlistId = curSl;
   state.currentMatchId = curMa;
   state.ready = true;
   applyTheme();
@@ -65,13 +58,6 @@ export const profileName = (id) => PROFILES.find((p) => p.id === id)?.name || id
 
 /** Un objet est visible s'il est partagé ou s'il appartient au profil courant. */
 export const visible = (o) => o.shared !== false || o.owner === state.profile;
-
-/* ------------------------------ Réglages -------------------------------- */
-export async function setRules(patch) {
-  state.rules = { ...state.rules, ...patch };
-  await db.setMeta('rules', state.rules);
-  emit('rules');
-}
 
 /* ---------------------------- Bibliothèque ------------------------------ */
 export async function addTracks(tracks, { dedupe = true } = {}) {
@@ -112,12 +98,6 @@ export async function removeTracks(ids) {
   const set = new Set(ids);
   await db.bulkDelete('tracks', ids);
   state.tracks = state.tracks.filter((t) => !set.has(t.id));
-  // nettoie les setlists
-  for (const sl of state.setlists) {
-    const before = sl.items.length;
-    sl.items = sl.items.filter((it) => !set.has(it.trackId));
-    if (sl.items.length !== before) await db.put('setlists', sl);
-  }
   emit('tracks');
 }
 
@@ -128,46 +108,6 @@ export async function clearLibrary() {
   state.tracks = [];
   emit('tracks');
 }
-
-/* ------------------------------ Setlists -------------------------------- */
-export function newSetlist(name = 'Nouvelle setlist') {
-  return {
-    id: uid(), kind: 'setlist', name, items: [], notes: '',
-    owner: state.profile, shared: true,
-    createdAt: Date.now(), updatedAt: Date.now(),
-  };
-}
-
-export async function saveSetlist(sl) {
-  sl.updatedAt = Date.now();
-  await db.put('setlists', sl);
-  const i = state.setlists.findIndex((s) => s.id === sl.id);
-  if (i < 0) state.setlists.unshift(sl); else state.setlists[i] = sl;
-  state.setlists.sort((a, b) => b.updatedAt - a.updatedAt);
-  emit('setlists');
-  return sl;
-}
-
-export async function deleteSetlist(id) {
-  await db.del('setlists', id);
-  state.setlists = state.setlists.filter((s) => s.id !== id);
-  if (state.currentSetlistId === id) await setCurrentSetlist(state.setlists[0]?.id || null);
-  emit('setlists');
-}
-
-export async function duplicateSetlist(id) {
-  const src = state.setlists.find((s) => s.id === id);
-  if (!src) return null;
-  const copy = { ...structuredClone(src), id: uid(), name: src.name + ' (copie)', createdAt: Date.now(), updatedAt: Date.now(), owner: state.profile };
-  return saveSetlist(copy);
-}
-
-export async function setCurrentSetlist(id) {
-  state.currentSetlistId = id;
-  await db.setMeta('currentSetlistId', id);
-  emit('currentSetlist');
-}
-export const currentSetlist = () => state.setlists.find((s) => s.id === state.currentSetlistId) || null;
 
 /* ------------------------------- Matchs --------------------------------- */
 export function newMatch(name, rows, meta = {}) {

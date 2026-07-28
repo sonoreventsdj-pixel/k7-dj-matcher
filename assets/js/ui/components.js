@@ -2,7 +2,7 @@
 
 import { h, fmtDur, icon } from '../core/util.js';
 import { toClassic, keyHue } from '../lib/camelot.js';
-import { scoreColor } from '../lib/scoring.js';
+import { quality } from '../lib/parsers/index.js';
 
 export function keyBadge(camelot, { classic = true } = {}) {
   if (!camelot) return h('span.badge.muted-3', { text: '—' });
@@ -21,33 +21,23 @@ export function bpmBadge(bpm) {
   return h('span.badge.badge-bpm', { text: Math.round(bpm) + ' BPM' });
 }
 
-export function energyDots(energy) {
-  const wrap = h('span.row-tight', { style: { display: 'inline-flex', gap: '2px' }, title: energy ? `Énergie ${energy}/10` : 'Énergie inconnue' });
-  for (let i = 1; i <= 10; i++) {
-    wrap.append(h('i', {
-      style: {
-        width: '4px', height: '11px', borderRadius: '2px',
-        background: energy && i <= energy
-          ? `hsl(${Math.round(150 - (energy / 10) * 150)} 72% 52%)`
-          : 'var(--line-strong)',
-      },
-    }));
-  }
-  return wrap;
-}
-
-export function scoreRing(score) {
-  const c = scoreColor(score);
-  const r = 15, circ = 2 * Math.PI * r;
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', '0 0 36 36');
-  svg.setAttribute('width', '38'); svg.setAttribute('height', '38');
-  svg.innerHTML =
-    `<circle cx="18" cy="18" r="${r}" fill="none" stroke="var(--line-strong)" stroke-width="3"/>
-     <circle cx="18" cy="18" r="${r}" fill="none" stroke="${c}" stroke-width="3" stroke-linecap="round"
-       stroke-dasharray="${circ}" stroke-dashoffset="${circ * (1 - score / 100)}" transform="rotate(-90 18 18)"/>
-     <text x="18" y="21.5" text-anchor="middle" font-size="11" font-weight="700" fill="currentColor">${score}</text>`;
-  return svg;
+/** Badge de qualité audio : débit en kbps, ou « Lossless » pour wav/aiff/flac. */
+export function bitrateBadge(track, { compact = false } = {}) {
+  const q = quality(track);
+  if (q.level === 'unknown') return compact ? null : h('span.badge.muted-3', { text: '—' });
+  const colors = {
+    lossless: ['var(--info)', 'Fichier sans perte'],
+    high: ['var(--ok)', 'Qualité maximale'],
+    ok: ['var(--ok)', 'Bonne qualité'],
+    low: ['var(--warn)', 'Qualité moyenne — à remplacer si possible'],
+    bad: ['var(--danger)', 'Qualité insuffisante pour la cabine'],
+  };
+  const [c, tip] = colors[q.level];
+  return h('span.badge', {
+    title: tip + (track.format ? ` · ${track.format.toUpperCase()}` : ''),
+    style: { background: `color-mix(in srgb, ${c} 16%, transparent)`, color: c },
+    text: q.label,
+  });
 }
 
 export function trackLine(t, { showMeta = true } = {}) {

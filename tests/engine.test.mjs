@@ -3,10 +3,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { toCamelot, toClassic, harmonicScore, compatibleKeys, CAMELOT_CODES } from '../assets/js/lib/camelot.js';
-import { bpmScore, energyScore, genreScore, compatibility, suggest, DEFAULT_RULES } from '../assets/js/lib/scoring.js';
+import { toCamelot, toClassic, CAMELOT_CODES } from '../assets/js/lib/camelot.js';
 import { norm, baseTitle, variantTags, dice, sim, buildIndex, matchOne, matchPlaylist, summarize } from '../assets/js/lib/matching.js';
-import { parseCSV, tracksFromCSV, tracksFromText, tracksFromM3U, detectDelimiter } from '../assets/js/lib/parsers/index.js';
+import { parseCSV, tracksFromCSV, tracksFromText, tracksFromM3U, detectDelimiter, parseBitrate, quality } from '../assets/js/lib/parsers/index.js';
+import { buildCrate, seratoPath, crateFilename } from '../assets/js/lib/exporters/serato.js';
+import { parseSeratoBinary, looksLikeSerato } from '../assets/js/lib/parsers/serato.js';
 
 /* ============================== Camelot ================================= */
 test('camelot : conversions classiques', () => {
@@ -37,61 +38,6 @@ test('camelot : aller-retour sur les 24 tonalités', () => {
     assert.ok(classic, `pas de notation classique pour ${c}`);
     assert.equal(toCamelot(classic), c, `${c} -> ${classic} -> ${toCamelot(classic)}`);
   }
-});
-
-test('camelot : compatibilité harmonique', () => {
-  assert.equal(harmonicScore('8A', '8A').score, 100);
-  assert.equal(harmonicScore('8A', '8B').kind, 'relative');
-  assert.equal(harmonicScore('8A', '9A').kind, 'neighbour');
-  assert.equal(harmonicScore('8A', '7A').kind, 'neighbour');
-  assert.equal(harmonicScore('12A', '1A').kind, 'neighbour');   // la roue boucle
-  assert.ok(harmonicScore('8A', '2A').score < 45);              // opposé
-  assert.ok(harmonicScore('8A', '9A').score > harmonicScore('8A', '10A').score);
-  assert.equal(harmonicScore(null, '8A').kind, 'unknown');
-});
-
-test('camelot : liste des tonalités compatibles', () => {
-  const c = compatibleKeys('8A');
-  assert.deepEqual(new Set(c), new Set(['8A', '9A', '7A', '8B']));
-  assert.deepEqual(new Set(compatibleKeys('12B')), new Set(['12B', '1B', '11B', '12A']));
-});
-
-/* =============================== Scoring ================================ */
-test('bpm : tolérance et demi/double tempo', () => {
-  assert.equal(bpmScore(128, 128).score, 100);
-  assert.ok(bpmScore(128, 130).score > 85);
-  assert.ok(bpmScore(128, 150).score < 30);
-  const half = bpmScore(128, 64, { ...DEFAULT_RULES, allowHalfDouble: true });
-  assert.ok(half.score > 70, 'le double tempo doit rester acceptable');
-  const strict = bpmScore(128, 64, { ...DEFAULT_RULES, allowHalfDouble: false });
-  assert.ok(strict.score < 20);
-});
-
-test('bpm : mode absolu', () => {
-  const r = { ...DEFAULT_RULES, bpmMode: 'absolute', bpmTolerance: 2, allowHalfDouble: false };
-  assert.ok(bpmScore(128, 129, r).score > 80);
-  assert.ok(bpmScore(128, 136, r).score < 40);
-});
-
-test('énergie et genre', () => {
-  assert.equal(energyScore(5, 5).score, 100);
-  assert.ok(energyScore(5, 6).score >= energyScore(5, 4).score, 'la montée est favorisée');
-  assert.ok(energyScore(5, 10).score < 40);
-  assert.equal(genreScore('House', 'House').score, 100);
-  assert.ok(genreScore('Deep House', 'Tech House').score > 70);
-  assert.ok(genreScore('Techno', 'Reggaeton').score < 50);
-});
-
-test('compatibilité globale et suggestions', () => {
-  const A = { id: 'a', title: 'A', camelot: '8A', bpm: 124, energy: 5, genre: 'House' };
-  const good = { id: 'b', title: 'B', camelot: '9A', bpm: 125, energy: 6, genre: 'House' };
-  const bad = { id: 'c', title: 'C', camelot: '2B', bpm: 174, energy: 1, genre: 'Metal' };
-  assert.ok(compatibility(A, good).score > 80);
-  assert.ok(compatibility(A, bad).score < 45);
-
-  const list = suggest(A, [A, good, bad], DEFAULT_RULES);
-  assert.equal(list.length, 2, 'le morceau de départ est exclu');
-  assert.equal(list[0].track.id, 'b');
 });
 
 /* =============================== Matching =============================== */
@@ -195,9 +141,78 @@ test('M3U', () => {
   assert.equal(t[0].location, '/Music/night.mp3');
 });
 
-test('énergie : échelle 0-1 de Spotify convertie en 1-10', () => {
-  const t = tracksFromCSV('Title,Artist,Energy\nX,Y,0.82');
-  assert.equal(t[0].energy, 8);
+/* ============================ Débit / qualité =========================== */
+test('débit : formats acceptés', () => {
+  assert.equal(parseBitrate('320'), 320);
+  assert.equal(parseBitrate('320.0kbps'), 320);
+  assert.equal(parseBitrate(320000), 320);       // bits/s
+  assert.equal(parseBitrate('1411'), 1411);      // WAV
+  assert.equal(parseBitrate(''), null);
+  assert.equal(parseBitrate('n/a'), null);
+});
+
+test('qualité : niveaux et classement', () => {
+  assert.equal(quality({ bitrate: 320, format: 'mp3' }).level, 'high');
+  assert.equal(quality({ bitrate: 256, format: 'mp3' }).level, 'ok');
+  assert.equal(quality({ bitrate: 192, format: 'mp3' }).level, 'low');
+  assert.equal(quality({ bitrate: 128, format: 'mp3' }).level, 'bad');
+  assert.equal(quality({ format: 'wav' }).level, 'lossless');
+  assert.equal(quality({}).level, 'unknown');
+  assert.ok(quality({ format: 'flac' }).rank > quality({ bitrate: 320 }).rank);
+});
+
+test('débit lu depuis un CSV', () => {
+  const t = tracksFromCSV('Title,Artist,Bitrate,Format\nX,Y,320,mp3');
+  assert.equal(t[0].bitrate, 320);
+  assert.equal(t[0].format, 'mp3');
+});
+
+test('à qualité égale, le meilleur débit remonte en premier', () => {
+  const lib = [
+    { id: 'lo', title: 'Alpha', artist: 'Un', bitrate: 128 },
+    { id: 'hi', title: 'Alpha', artist: 'Un', bitrate: 320 },
+  ];
+  const res = matchOne({ title: 'Alpha', artist: 'Un' }, buildIndex(lib));
+  assert.equal(res.candidates[0].track.id, 'hi');
+});
+
+/* ============================ Crate Serato ============================== */
+test('chemins Serato : relatifs au volume', () => {
+  assert.equal(seratoPath('/Users/kevin/Music/x.mp3'), 'Users/kevin/Music/x.mp3');
+  assert.equal(seratoPath('C:\\Music\\x.mp3'), 'Music/x.mp3');
+  assert.equal(seratoPath('/Volumes/DJ SSD/Tracks/x.mp3'), 'Tracks/x.mp3');
+  assert.equal(seratoPath('file:///Users/kevin/Music/a%20b.mp3'), 'Users/kevin/Music/a b.mp3');
+  assert.equal(seratoPath(''), null);
+});
+
+test('crate écrite puis relue à l\'identique', async () => {
+  const tracks = [
+    { title: 'Alpha', artist: 'Un', location: '/Users/kevin/Music/Un - Alpha.mp3' },
+    { title: 'Bêta', artist: 'Deux', location: '/Users/kevin/Music/Deux - Bêta.mp3' },
+    { title: 'Sans fichier', artist: 'Trois', location: '' },
+  ];
+  const { blob, included, skipped } = buildCrate(tracks);
+  assert.equal(included.length, 2);
+  assert.equal(skipped.length, 1, 'le morceau sans chemin est écarté');
+
+  const buf = await blob.arrayBuffer();
+  assert.ok(looksLikeSerato(buf), 'l\'en-tête doit être reconnu comme du Serato');
+
+  const back = parseSeratoBinary(buf);
+  assert.equal(back.length, 2);
+  assert.equal(back[0].location, 'Users/kevin/Music/Un - Alpha.mp3');
+  assert.equal(back[0].artist, 'Un');
+  assert.equal(back[0].title, 'Alpha');
+  assert.equal(back[1].title, 'Bêta', 'les accents survivent à l\'UTF-16');
+});
+
+test('nom de fichier de crate assaini en ASCII', () => {
+  // Les navigateurs remplacent un nom non-ASCII par « download » : on translittère.
+  assert.equal(crateFilename('Mariage 12/09 : soirée'), 'Mariage 12 09 soiree.crate');
+  assert.equal(crateFilename('K7 — Été à Ibiza'), 'K7 - Ete a Ibiza.crate');
+  assert.equal(crateFilename('Sous%%crate'), 'Sous crate.crate');
+  assert.equal(crateFilename(''), 'K7.crate');
+  assert.ok(/^[\x20-\x7E]+$/.test(crateFilename('Café — Noël 🎧')), 'le résultat doit être 100 % ASCII');
 });
 
 /* ========================= Liens de playlist ============================ */

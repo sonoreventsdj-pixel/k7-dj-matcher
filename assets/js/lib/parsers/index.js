@@ -21,6 +21,8 @@ export function makeTrack(raw = {}) {
     tags: normTags(raw.tags),
     notes: raw.notes ? String(raw.notes).trim() : '',
     duration: raw.duration != null ? parseDur(raw.duration) : null,
+    bitrate: parseBitrate(raw.bitrate),
+    format: raw.format ? String(raw.format).toLowerCase().replace(/^\./, '') : '',
     playCount: num(raw.playCount) || 0,
     rating: num(raw.rating) || null,
     location: raw.location || '',
@@ -28,6 +30,31 @@ export function makeTrack(raw = {}) {
     owner: raw.owner || null,
     addedAt: raw.addedAt || Date.now(),
   };
+}
+
+/**
+ * Débit en kbps. Accepte « 320 », « 320.0kbps », « 320000 » (bits/s), « 1411 » (WAV).
+ * Renvoie null si la valeur n'a pas de sens.
+ */
+export function parseBitrate(v) {
+  if (v == null || v === '') return null;
+  let n = num(String(v).replace(/kbps/i, ''));
+  if (n == null || n <= 0) return null;
+  if (n > 10000) n = n / 1000;          // bits/s -> kbps
+  n = Math.round(n);
+  return n >= 8 && n <= 10000 ? n : null;
+}
+
+/** Qualité indicative d'un fichier, d'après son débit et son format. */
+export function quality(track) {
+  const lossless = ['wav', 'aiff', 'aif', 'flac', 'alac'].includes(track.format || '');
+  if (lossless) return { level: 'lossless', label: 'Lossless', rank: 4 };
+  const b = track.bitrate;
+  if (!b) return { level: 'unknown', label: 'Débit inconnu', rank: 0 };
+  if (b >= 320) return { level: 'high', label: '320 kbps', rank: 3 };
+  if (b >= 256) return { level: 'ok', label: b + ' kbps', rank: 2 };
+  if (b >= 192) return { level: 'low', label: b + ' kbps', rank: 1 };
+  return { level: 'bad', label: b + ' kbps', rank: 0 };
 }
 
 /** Énergie sur 1-10. Accepte aussi l'échelle 0-1 de Spotify. */
@@ -101,6 +128,8 @@ const HEADER_MAP = {
   playCount: ['play count', 'plays', 'playcount', 'lectures', 'nb lectures'],
   rating: ['rating', 'note', 'stars', 'etoiles'],
   location: ['location', 'path', 'file', 'chemin', 'filename'],
+  bitrate: ['bitrate', 'bit rate', 'debit', 'débit', 'kbps', 'quality', 'qualite', 'qualité'],
+  format: ['format', 'type', 'kind', 'extension', 'codec'],
 };
 
 function mapHeaders(header) {
@@ -134,7 +163,7 @@ export function tracksFromCSV(text, { source = 'csv' } = {}) {
       bpm: g('bpm'), key: g('key'), genre: g('genre'), energy: g('energy'),
       year: g('year'), tags: g('tags'), notes: g('notes'),
       duration: g('duration'), playCount: g('playCount'), rating: g('rating'),
-      location: g('location'), source,
+      location: g('location'), bitrate: g('bitrate'), format: g('format'), source,
     });
   }).filter((t) => t.title || t.artist);
 }
@@ -232,6 +261,8 @@ export function tracksFromITunes(xmlText, { source = 'itunes' } = {}) {
       genre: g('Genre') || '',
       year: g('Year'),
       duration: g('Total Time'),
+      bitrate: g('Bit Rate'),
+      format: itunesFormat(g('Kind'), g('Location')),
       playCount: g('Play Count'),
       rating: g('Rating') ? Math.round(Number(g('Rating')) / 20) : null,
       tags: g('Grouping') || '',
@@ -263,6 +294,18 @@ function plistValue(node) {
   }
 }
 const safeDecode = (s) => { try { return decodeURIComponent(s); } catch { return s; } };
+
+/** « MPEG audio file » + chemin -> extension normalisée. */
+function itunesFormat(kind, location) {
+  const ext = String(location || '').toLowerCase().match(/\.([a-z0-9]{2,4})(?:\?|$)/)?.[1];
+  if (ext) return ext;
+  const k = String(kind || '').toLowerCase();
+  if (k.includes('mpeg')) return 'mp3';
+  if (k.includes('aac') || k.includes('apple lossless')) return k.includes('lossless') ? 'alac' : 'm4a';
+  if (k.includes('wav')) return 'wav';
+  if (k.includes('aiff')) return 'aiff';
+  return '';
+}
 
 /* ============================ Point d'entrée ============================ */
 /** Route automatiquement selon le nom / le contenu du fichier. */

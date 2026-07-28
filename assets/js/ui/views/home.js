@@ -12,7 +12,6 @@ const go = (v) => document.dispatchEvent(new CustomEvent('nav', { detail: v }));
 export function render(root) {
   const nTracks = store.state.tracks.length;
   const lastMatch = store.state.matches[0] || null;
-  const lastSet = store.state.setlists[0] || null;
 
   const hero = h('div.hero', {},
     h('h2', { text: `Bonjour ${store.profile().name} 👋` }),
@@ -23,7 +22,7 @@ export function render(root) {
       nTracks
         ? btn('Matcher une playlist', { variant: 'btn-primary', ico: 'match', onClick: () => go('matcher') })
         : btn('Importer ma bibliothèque', { variant: 'btn-primary', ico: 'upload', onClick: () => importDialog(null, () => render(root)) }),
-      btn('Construire une setlist', { ico: 'setlist', onClick: () => go('setlist') })));
+      nTracks ? btn('Compléter la bibliothèque', { ico: 'upload', onClick: () => importDialog(null, () => render(root)) }) : null));
 
   const tiles = h('div.cols-3', { style: { marginTop: '16px' } },
     tile('library', 'var(--grad-blue)', 'Bibliothèque',
@@ -32,9 +31,9 @@ export function render(root) {
     tile('match', 'var(--grad-purple)', 'Matcher',
       lastMatch ? lastMatch.name : 'Aucun match',
       lastMatch ? matchLine(lastMatch) : 'Playlist Spotify / Deezer → ta bibliothèque.', () => go('matcher')),
-    tile('setlist', 'var(--grad-green)', 'Setlist',
-      lastSet ? lastSet.name : 'Aucune setlist',
-      lastSet ? `${lastSet.items.length} morceaux · ${fmtDateTime(lastSet.updatedAt)}` : 'Camelot, BPM, énergie, drag & drop.', () => go('setlist')));
+    tile('sessions', 'var(--grad-green)', 'Matchs enregistrés',
+      `${store.state.matches.length} match(s)`,
+      'Rouvre un rapprochement pour ajuster les versions.', () => go('sessions')));
 
   const memCard = h('div.tile', { style: { marginTop: '16px' } },
     h('div.ico', { style: { background: 'var(--grad-mixed)' } }, icon('check', 20)),

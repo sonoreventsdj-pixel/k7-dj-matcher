@@ -17,6 +17,10 @@ const FIELD = {
   tbpm: 'bpm',
   tkey: 'key',
   tlen: 'lengthText', // "3:45"
+  tbit: 'bitrate',    // "320.0kbps"
+  ttyp: 'format',     // "mp3", "wav"…
+  tsmp: 'sampleRate', // "44.1k"
+  tsiz: 'sizeText',   // "8.5MB"
   ttyr: 'year',
   tcom: 'notes',
   tgrp: 'tags',
@@ -83,9 +87,13 @@ function trackFromRaw(raw, source) {
     title, artist: artist || '', album: raw.album || '', genre: raw.genre || '',
     bpm: raw.bpm || null, key: raw.key || null, year: raw.year || null,
     duration: raw.lengthText || null, notes: raw.notes || '', tags: raw.tags || '',
+    bitrate: raw.bitrate || null,
+    format: raw.format || extFromPath(raw.location),
     location: raw.location || '', source,
   });
 }
+
+const extFromPath = (p) => String(p || '').toLowerCase().match(/\.([a-z0-9]{2,4})$/)?.[1] || '';
 
 /** Un .crate ne contient que des chemins : on les résout dans la bibliothèque si possible. */
 export function parseSeratoCrate(buffer, { source = 'Serato (crate)' } = {}) {
