@@ -255,6 +255,79 @@ async function fetchSpotify({ id, kind }, onProgress) {
   return { name, entries };
 }
 
+/* ------------------- Liste de titres copiée depuis Spotify ---------------
+   Spotify refuse de livrer le contenu d'une playlist à une application non
+   validée (403 sur /playlists/{id}/tracks). En revanche l'endpoint catalogue
+   /tracks/{id} reste ouvert. On exploite ça : dans l'application Spotify,
+   sélectionner tous les titres (Ctrl/Cmd+A) puis copier (Ctrl/Cmd+C) met dans
+   le presse-papier la liste de leurs liens. K7 les résout un par un.
+   ---------------------------------------------------------------------- */
+
+const TRACK_LINK = /(?:open\.spotify\.com\/(?:intl-[a-z]+\/)?track\/|spotify:track:)([A-Za-z0-9]{22})/gi;
+
+/** Extrait les identifiants de titres Spotify d'un texte collé (dédoublonnés, ordre conservé). */
+export function extractTrackIds(text) {
+  const out = [];
+  const seen = new Set();
+  for (const m of String(text || '').matchAll(TRACK_LINK)) {
+    if (!seen.has(m[1])) { seen.add(m[1]); out.push(m[1]); }
+  }
+  return out;
+}
+
+/**
+ * Résout des identifiants de titres via l'API catalogue.
+ * L'endpoint par lot (/tracks?ids=) est lui aussi bloqué : on interroge donc
+ * /tracks/{id} un par un, quelques requêtes en parallèle pour tenir la durée.
+ */
+export async function fetchSpotifyTracks(ids, onProgress) {
+  const token = await accessToken();
+  const results = new Array(ids.length).fill(null);
+  const CONCURRENCE = 4;
+  let done = 0, refus = 0;
+
+  async function worker(start) {
+    for (let i = start; i < ids.length; i += CONCURRENCE) {
+      try {
+        const r = await fetch('https://api.spotify.com/v1/tracks/' + ids[i], {
+          headers: { Authorization: 'Bearer ' + token },
+        });
+        if (r.status === 429) {                       // on respecte la limite de débit
+          const wait = Number(r.headers.get('retry-after') || 2);
+          await new Promise((res) => setTimeout(res, (wait + 1) * 1000));
+          i -= CONCURRENCE;                            // on refait ce titre
+          continue;
+        }
+        if (r.status === 401) throw new Error('NOT_CONNECTED');
+        if (!r.ok) { refus++; }
+        else {
+          const t = await r.json();
+          if (t?.name) results[i] = {
+            title: t.name,
+            artist: (t.artists || []).map((a) => a.name).join(', '),
+            album: t.album?.name || '',
+            duration: t.duration_ms ? Math.round(t.duration_ms / 1000) : null,
+          };
+        }
+      } catch (e) {
+        if (e.message === 'NOT_CONNECTED') throw e;
+        refus++;
+      }
+      done++;
+      if (done % 3 === 0 || done === ids.length) onProgress?.(done, ids.length, `Lecture des titres… ${done}/${ids.length}`);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCE, ids.length) }, (_, k) => worker(k)));
+  const entries = results.filter(Boolean);
+  if (!entries.length) {
+    const err = new Error('SPOTIFY_NO_PLAYLIST_ACCESS');
+    err.playlistName = null;
+    throw err;
+  }
+  return { name: 'Titres Spotify', entries, refus };
+}
+
 /* ------------------------- Liens de partage courts ---------------------- */
 /**
  * Les liens « Partager » de Deezer et Spotify (link.deezer.com/s/…, spotify.link/…)

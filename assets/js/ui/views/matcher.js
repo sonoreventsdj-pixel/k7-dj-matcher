@@ -109,10 +109,25 @@ function formScreen(root) {
     } catch (e) { toast('Fichier illisible : ' + e.message, 'err'); }
   }
 
-  const advanced = h('details', { style: { marginTop: '4px' } },
-    h('summary', { style: { cursor: 'pointer', color: 'var(--text-2)', fontSize: '13px' }, text: 'Autre source (coller une liste ou déposer un fichier)' }),
+  const pasteHint = h('div.small.muted-3', { style: { marginTop: '6px' } });
+  textArea.addEventListener('input', () => {
+    const ids = playlist.extractTrackIds(textArea.value);
+    pasteHint.textContent = ids.length
+      ? `${ids.length} titre(s) Spotify reconnu(s) — ils seront lus directement via l'API.`
+      : '';
+    pasteHint.style.color = ids.length ? 'var(--ok)' : '';
+  });
+
+  const advanced = h('details', { open: true, style: { marginTop: '4px' } },
+    h('summary', { style: { cursor: 'pointer', color: 'var(--text-2)', fontSize: '13px' },
+      text: 'Autre source — liste de titres, liens Spotify copiés, ou fichier' }),
     h('div.grid', { style: { gap: '12px', marginTop: '12px' } },
-      textArea,
+      h('div', {},
+        h('p.small.muted', { style: { marginBottom: '8px' } },
+          'Astuce Spotify : dans l\'application, ouvre la playlist, ',
+          h('strong', { text: 'sélectionne tous les titres (Ctrl/Cmd + A) puis copie (Ctrl/Cmd + C)' }),
+          ' et colle ici. K7 lit les liens et récupère les titres.'),
+        textArea, pasteHint),
       h('div.row', {}, h('span.label', { text: 'Format des lignes' }), orderSel),
       drop));
 
@@ -166,8 +181,29 @@ function formScreen(root) {
       } else {
         const txt = textArea.value.trim();
         if (!txt) { toast('Colle une URL de playlist, une liste, ou dépose un fichier.', 'err'); return; }
-        entries = /(^|,)\s*("?)(track name|title|titre|artist)/i.test(txt.split('\n')[0])
-          ? tracksFromCSV(txt) : tracksFromText(txt, { order: orderSel.value });
+
+        const trackIds = playlist.extractTrackIds(txt);
+        if (trackIds.length) {
+          // Liens de titres copiés depuis Spotify : on les résout via l'API catalogue.
+          try {
+            ui.screen = 'running'; ui.progressLabel = 'Lecture des titres Spotify…'; ui.progress = 0; render(root);
+            const r = await playlist.fetchSpotifyTracks(trackIds, (n, total, label) => {
+              const el = document.getElementById('match-progress');
+              if (el) el.textContent = label || `${n} / ${total}`;
+            });
+            entries = r.entries;
+            autoName = null;
+            if (r.refus) toast(`${r.refus} titre(s) n'ont pas pu être lus.`, 'err');
+          } catch (e) {
+            ui.screen = 'form'; render(root);
+            if (e.message === 'NOT_CONNECTED') toast('Connecte Spotify d\'abord.', 'err');
+            else spotifyBlockedHelp(null, txt);
+            return;
+          }
+        } else {
+          entries = /(^|,)\s*("?)(track name|title|titre|artist)/i.test(txt.split('\n')[0])
+            ? tracksFromCSV(txt) : tracksFromText(txt, { order: orderSel.value });
+        }
       }
       if (!entries?.length) { ui.screen = 'form'; render(root); toast('Aucun titre détecté.', 'err'); return; }
       await run(entries, nameInput.value.trim() || autoName || 'Match du ' + new Date().toLocaleDateString('fr-FR'), dedupe.checked, root);
@@ -225,15 +261,19 @@ function spotifyBlockedHelp(playlistName, url) {
       h('div', { style: { padding: '14px', borderRadius: 'var(--r-ctl)', background: 'var(--surface-2)' } },
         h('strong', { text: 'Les trois solutions, de la plus simple à la plus lourde :' }),
         h('ol', { style: { margin: '10px 0 0', paddingLeft: '20px', lineHeight: '1.6' } },
-          li(h('strong', { text: 'Deezer' }), ' — colle plutôt un lien Deezer : ça fonctionne sans aucune configuration.'),
-          li(h('strong', { text: 'Exporter la playlist en CSV' }), ' avec un outil déjà validé par Spotify, comme ',
+          li(h('strong', { text: 'Copier les titres depuis l\'application Spotify' }),
+            ' — ouvre la playlist, clique sur un titre, ', h('strong', { text: 'Ctrl/Cmd + A' }), ' puis ',
+            h('strong', { text: 'Ctrl/Cmd + C' }), ', et colle dans « Autre source » ci-dessous. ',
+            'K7 reconnaît les liens et interroge Spotify titre par titre — cette voie-là reste autorisée. ',
+            h('em', { text: 'C\'est la méthode la plus directe.' })),
+          li(h('strong', { text: 'Deezer' }), ' — un lien Deezer fonctionne sans aucune configuration.'),
+          li(h('strong', { text: 'Export CSV' }), ' via un outil déjà validé par Spotify comme ',
             h('a', { href: 'https://exportify.net', target: '_blank', rel: 'noopener', text: 'exportify.net' }),
-            ', puis dépose le fichier obtenu dans « Autre source » ci-dessous. K7 lit ce format directement.'),
-          li(h('strong', { text: 'Copier-coller' }), ' la liste des titres (un « Artiste - Titre » par ligne) dans « Autre source ».'))),
+            ', puis dépose le fichier dans « Autre source ». K7 lit ce format directement.'))),
     ),
     actions: [
       { label: 'Fermer' },
-      url ? { label: 'Ouvrir Exportify', cls: 'btn-primary', onClick: () => window.open('https://exportify.net', '_blank', 'noopener') } : null,
+      { label: 'Ouvrir Exportify', onClick: () => window.open('https://exportify.net', '_blank', 'noopener') },
     ].filter(Boolean),
   });
 }

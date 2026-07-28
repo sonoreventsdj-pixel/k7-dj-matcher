@@ -279,3 +279,18 @@ test('fonction Netlify : suit la redirection et filtre les domaines', async () =
     assert.equal(vide.statusCode, 400);
   } finally { globalThis.fetch = real; }
 });
+
+test('liens de titres Spotify copiés depuis l\'application', async () => {
+  const { extractTrackIds } = await import('../assets/js/lib/playlist.js');
+  const colle = [
+    'https://open.spotify.com/track/11dFghVXANMlKmJXsNCbNl?si=abc123',
+    'spotify:track:4uLU6hMCjMI75M1A2tKUQC',
+    'https://open.spotify.com/intl-fr/track/0VjIjW4GlUZAMYd2vXMi3b',
+    'https://open.spotify.com/track/11dFghVXANMlKmJXsNCbNl',   // doublon
+    'du texte sans lien',
+  ].join('\n');
+  const ids = extractTrackIds(colle);
+  assert.deepEqual(ids, ['11dFghVXANMlKmJXsNCbNl', '4uLU6hMCjMI75M1A2tKUQC', '0VjIjW4GlUZAMYd2vXMi3b']);
+  assert.deepEqual(extractTrackIds('rien ici'), []);
+  assert.deepEqual(extractTrackIds(''), []);
+});
