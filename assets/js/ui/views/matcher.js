@@ -53,7 +53,8 @@ function formScreen(root) {
       if (!v) urlHint.textContent = '';
       else if (!d) urlHint.textContent = 'Lien non reconnu — il doit contenir /playlist/.';
       else if (d.provider === 'short') urlHint.textContent = 'Lien de partage : il sera converti automatiquement au lancement.';
-      else urlHint.textContent = `Playlist ${d.provider === 'deezer' ? 'Deezer' : 'Spotify'} détectée${d.kind === 'album' ? ' (album)' : ''}.`;
+      else if (d.provider === 'spotify' && d.kind !== 'album') urlHint.textContent = 'Playlist Spotify détectée. Attention : Spotify refuse souvent d\'en livrer le contenu (voir Réglages).';
+      else urlHint.textContent = `${d.provider === 'deezer' ? 'Deezer' : 'Spotify'} détecté${d.kind === 'album' ? ' (album)' : ''}.`;
     },
   });
   const dedupe = h('input', { type: 'checkbox', checked: true });
@@ -116,13 +117,14 @@ function formScreen(root) {
       drop));
 
   /* ---- Bibliothèque ---- */
-  const nTracks = store.state.tracks.length;
-  const sources = [...new Set(store.state.tracks.map((t) => t.source).filter(Boolean))].slice(0, 3).join(', ');
+  const myTracks = store.myTracks();
+  const nTracks = myTracks.length;
+  const sources = [...new Set(myTracks.map((t) => t.source).filter(Boolean))].slice(0, 3).join(', ');
   const libState = nTracks
     ? h('div.row', { style: { padding: '13px 15px', border: '1px solid color-mix(in srgb, var(--ok) 40%, transparent)', borderRadius: 'var(--r-ctl)', background: 'color-mix(in srgb, var(--ok) 8%, transparent)' } },
         h('span.badge.badge-ok', {}, '✓'),
         h('strong', { text: sources || 'Bibliothèque' }),
-        h('span.muted.small', { text: `— ${nTracks.toLocaleString('fr-FR')} morceaux` }),
+        h('span.muted.small', { text: `— ${nTracks.toLocaleString('fr-FR')} morceaux · ${store.profile().name}` }),
         h('div.spacer'),
         btn('Compléter / remplacer', { sm: true, onClick: () => importDialog(null, () => render(root)) }))
     : h('div.row', { style: { padding: '13px 15px', border: '1px solid color-mix(in srgb, var(--warn) 45%, transparent)', borderRadius: 'var(--r-ctl)', background: 'color-mix(in srgb, var(--warn) 9%, transparent)' } },
@@ -132,8 +134,8 @@ function formScreen(root) {
         h('div.spacer'),
         btn('Importer maintenant', { variant: 'btn-primary', sm: true, onClick: () => importDialog(null, () => render(root)) }));
 
-  const memoryHint = memory.size()
-    ? h('p.muted-3.small', { text: `${memory.size()} choix déjà mémorisés : ces titres seront reconnus automatiquement.` })
+  const memoryHint = memory.sizeFor(store.state.profile)
+    ? h('p.muted-3.small', { text: `${memory.sizeFor(store.state.profile)} choix déjà mémorisés : ces titres seront reconnus automatiquement.` })
     : h('p.muted-3.small', { text: 'À chaque version que tu valides, le choix est mémorisé pour les prochains matchs.' });
 
   const launch = btn('Lancer le matching', {
@@ -155,6 +157,7 @@ function formScreen(root) {
           ui.screen = 'form'; render(root);
           if (e.message === 'NOT_CONNECTED') toast('Connecte Spotify d\'abord (bouton ci-dessus).', 'err');
           else if (e.message === 'SHORT_LINK') shortLinkHelp(e.shortLink);
+          else if (e.message === 'SPOTIFY_NO_PLAYLIST_ACCESS' || e.message === 'SPOTIFY_FORBIDDEN') spotifyBlockedHelp(e.playlistName, url);
           else toast(e.message, 'err');
           return;
         }
@@ -204,6 +207,37 @@ function shortLinkHelp(url) {
   });
 }
 
+/**
+ * Spotify a durci l'accès développeur : une application en « Development mode »
+ * lit le nom d'une playlist mais pas son contenu (403), même s'il s'agit de ses
+ * propres playlists. Rien à corriger de notre côté — on explique le contournement.
+ */
+function spotifyBlockedHelp(playlistName, url) {
+  const li = (...c) => h('li', { style: { marginBottom: '6px' } }, ...c);
+  modal({
+    title: 'Spotify bloque la lecture de cette playlist',
+    width: '640px',
+    body: h('div.grid', { style: { gap: '14px' } },
+      h('p', {}, 'La playlist ',
+        playlistName ? h('strong', { text: '« ' + playlistName + ' »' }) : 'demandée',
+        ' est bien reconnue, mais Spotify refuse d\'en donner le contenu.'),
+      h('p.muted.small', { text: 'Depuis le durcissement de son accès développeur, une application personnelle non validée par Spotify peut lire le nom d\'une playlist mais pas la liste de ses titres — y compris pour tes propres playlists. Ce n\'est pas réglable dans K7.' }),
+      h('div', { style: { padding: '14px', borderRadius: 'var(--r-ctl)', background: 'var(--surface-2)' } },
+        h('strong', { text: 'Les trois solutions, de la plus simple à la plus lourde :' }),
+        h('ol', { style: { margin: '10px 0 0', paddingLeft: '20px', lineHeight: '1.6' } },
+          li(h('strong', { text: 'Deezer' }), ' — colle plutôt un lien Deezer : ça fonctionne sans aucune configuration.'),
+          li(h('strong', { text: 'Exporter la playlist en CSV' }), ' avec un outil déjà validé par Spotify, comme ',
+            h('a', { href: 'https://exportify.net', target: '_blank', rel: 'noopener', text: 'exportify.net' }),
+            ', puis dépose le fichier obtenu dans « Autre source » ci-dessous. K7 lit ce format directement.'),
+          li(h('strong', { text: 'Copier-coller' }), ' la liste des titres (un « Artiste - Titre » par ligne) dans « Autre source ».'))),
+    ),
+    actions: [
+      { label: 'Fermer' },
+      url ? { label: 'Ouvrir Exportify', cls: 'btn-primary', onClick: () => window.open('https://exportify.net', '_blank', 'noopener') } : null,
+    ].filter(Boolean),
+  });
+}
+
 /* ============================== Écran 2 ================================= */
 function runningScreen() {
   return h('div.card.card-pad', { style: { textAlign: 'center', padding: '90px 20px' } },
@@ -216,7 +250,8 @@ async function run(entries, name, dedupe, root) {
   ui.screen = 'running'; ui.progress = 0; ui.progressLabel = 'Matching en cours…'; render(root);
   await new Promise((r) => setTimeout(r, 60));
 
-  const rows = await matchPlaylist(entries, store.state.tracks, {
+  const mine = store.myTracks();
+  const rows = await matchPlaylist(entries, mine, {
     dedupe,
     onProgress: (done, total) => {
       ui.progress = Math.round((done / total) * 100);
@@ -227,10 +262,14 @@ async function run(entries, name, dedupe, root) {
 
   // Application de la mémoire des correspondances
   await memory.load();
-  const byId = new Map(store.state.tracks.map((t) => [t.id, t]));
+  const byId = new Map(mine.map((t) => [t.id, t]));
   const ids = new Set(byId.keys());
   let learned = 0;
-  for (const r of rows) { r.libraryById = byId; if (memory.apply(r, ids)) learned++; delete r.libraryById; }
+  for (const r of rows) {
+    r.libraryById = byId;
+    if (memory.apply(r, ids, store.state.profile)) learned++;
+    delete r.libraryById;
+  }
 
   session = store.newMatch(name, rows, { playlistSize: entries.length });
   await store.saveMatch(session);
@@ -273,6 +312,8 @@ function resultsScreen(root) {
       h('div.row.row-tight',
         {},
         btn('Nouveau match', { onClick: () => { session = null; store.setCurrentMatch(null); ui.screen = 'form'; render(root); } }),
+        session.owner && session.owner !== store.state.profile
+          ? h('span.badge.badge-info', { text: 'partagé par ' + store.profileName(session.owner) }) : null,
         btn('Renommer', { sm: true, onClick: async () => {
           const n = await promptDialog('Renommer le match', session.name);
           if (n) { session.name = n; await store.saveMatch(session); render(root); }
@@ -424,7 +465,7 @@ function candidateList(r, root, persist) {
 /* ------------------------------- Exports -------------------------------- */
 /** Les trois lots exportables d'un match. */
 function buckets() {
-  const byId = new Map(store.state.tracks.map((t) => [t.id, t]));
+  const byId = new Map(store.myTracks().map((t) => [t.id, t]));
   const main = [], alt = [], missing = [];
   for (const r of session.rows) {
     if (r.chosenId && byId.get(r.chosenId)) main.push(byId.get(r.chosenId));

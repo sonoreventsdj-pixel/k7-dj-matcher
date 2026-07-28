@@ -23,7 +23,7 @@ export function render(root) {
   /* -------------------------------- Équipe ------------------------------ */
   const team = h('div.card', {},
     h('div.card-head', {}, h('div', {}, h('h2', { text: 'Équipe' }),
-      h('div.sub', { text: 'Deux profils. Les matchs « partagés » sont visibles par les deux ; les matchs « privés » ne le sont que par leur auteur.' }))),
+      h('div.sub', { text: 'Chacun son espace : sa bibliothèque, ses matchs, sa mémoire. Un match est privé par défaut ; on le partage à la demande depuis l\'onglet Matchs. La bibliothèque de l\'autre est consultable en lecture seule, avec copie possible.' }))),
     h('div.card-pad.row', {}, store.PROFILES.map((p) =>
       h('button.profile-chip', {
         style: p.id === store.state.profile ? { borderColor: 'var(--mp-primary)' } : null,
@@ -36,7 +36,7 @@ export function render(root) {
   /* ------------------------------ Données ------------------------------- */
   const data = h('div.card', {},
     h('div.card-head', {}, h('div', {}, h('h2', { text: 'Données' }),
-      h('div.sub', { text: `${store.state.tracks.length} morceaux · ${store.state.matches.length} matchs — tout est stocké dans ce navigateur (IndexedDB).` }))),
+      h('div.sub', { text: `${store.myTracks().length.toLocaleString('fr-FR')} morceaux et ${store.state.matches.filter((m) => (m.owner || 'kevin') === store.state.profile).length} match(s) dans ton espace · ${store.countTracks(store.otherProfile().id).toLocaleString('fr-FR')} morceaux dans celui de ${store.profileName(store.otherProfile().id)} — tout est stocké dans ce navigateur (IndexedDB).` }))),
     h('div.card-pad.grid', { style: { gap: '14px' } },
       h('div.row', {},
         btn('Exporter une sauvegarde', { ico: 'download', onClick: async () => {
@@ -82,17 +82,17 @@ export function render(root) {
   const memBox = h('div.card-pad.grid', { style: { gap: '12px' } });
   const memCard = h('div.card', {},
     h('div.card-head', {}, h('div', {}, h('h2', { text: 'Mémoire des correspondances' }),
-      h('div.sub', { text: 'Chaque version validée dans le Matcher est retenue et réappliquée automatiquement au match suivant.' }))),
+      h('div.sub', { text: 'Chaque version validée dans le Matcher est retenue et réappliquée au match suivant. Cette mémoire est propre à ton profil : elle pointe vers TA bibliothèque.' }))),
     memBox);
   (async () => {
     await memory.load();
-    const rows = memory.list();
+    const rows = memory.listFor(store.state.profile);
     memBox.textContent = '';
     memBox.append(h('div.row', {},
       h('span.badge.badge-info', { text: `${rows.length} décision(s) mémorisée(s)` }),
       h('div.spacer'),
       btn('Exporter (CSV)', { sm: true, ico: 'download', disabled: !rows.length, onClick: () => {
-        const byId = new Map(store.state.tracks.map((t) => [t.id, t]));
+        const byId = new Map(store.myTracks().map((t) => [t.id, t]));
         const csv = toCSV(rows, [
           { key: 'title', label: 'Titre playlist' }, { key: 'artist', label: 'Artiste playlist' },
           { key: (d) => byId.get(d.chosenId)?.title || (d.chosenId ? '(morceau supprimé)' : 'À récupérer'), label: 'Version retenue' },
@@ -103,11 +103,11 @@ export function render(root) {
       } }),
       btn('Tout oublier', { sm: true, variant: 'btn-danger', disabled: !rows.length, onClick: async () => {
         if (!await confirmDialog('Vider la mémoire', 'Les choix de version mémorisés seront perdus. Les matchs déjà enregistrés ne changent pas.')) return;
-        await memory.forgetAll(); toast('Mémoire vidée', 'ok'); render(root);
+        await memory.forgetAll(store.state.profile); toast('Mémoire vidée', 'ok'); render(root);
       } })));
 
     if (!rows.length) { memBox.append(h('p.muted.small', { text: 'Aucune décision pour l\'instant. Valide des versions dans le Matcher.' })); return; }
-    const byId = new Map(store.state.tracks.map((t) => [t.id, t]));
+    const byId = new Map(store.myTracks().map((t) => [t.id, t]));
     const table = h('table.tbl', {},
       h('thead', {}, h('tr', {}, h('th', { text: 'Titre de la playlist' }), h('th', { text: 'Version retenue' }),
         h('th', { text: 'Alt.' }), h('th', { text: '' }))),
@@ -128,6 +128,13 @@ export function render(root) {
   const spotifyCard = h('div.card', {},
     h('div.card-head', {}, h('div', {}, h('h2', { text: 'Connexion Spotify' }),
       h('div.sub', { text: 'Nécessaire uniquement pour lire une URL de playlist Spotify. Deezer fonctionne sans configuration.' }))),
+    h('div.card-pad', { style: { paddingBottom: 0 } },
+      h('div', { style: { padding: '13px 15px', borderRadius: 'var(--r-ctl)',
+          border: '1px solid color-mix(in srgb, var(--warn) 45%, transparent)',
+          background: 'color-mix(in srgb, var(--warn) 9%, transparent)' } },
+        h('strong', { text: '⚠ Limite imposée par Spotify' }),
+        h('p.small', { style: { marginTop: '5px' }, text: 'Une application personnelle non validée par Spotify peut lire le NOM d\'une playlist mais pas la LISTE DE SES TITRES — y compris tes propres playlists. Les albums et la recherche, eux, restent accessibles.' }),
+        h('p.small.muted', { style: { marginTop: '5px' }, text: 'Contournement : passer par Deezer, ou exporter la playlist Spotify en CSV (exportify.net) et déposer le fichier dans le Matcher.' }))),
     h('div.card-pad.grid', { style: { gap: '14px' } },
       h('ol.muted.small', { style: { margin: 0, paddingLeft: '18px', lineHeight: '1.9' } },
         h('li', {}, 'Va sur ', h('a', { href: 'https://developer.spotify.com/dashboard', target: '_blank', rel: 'noopener', text: 'developer.spotify.com/dashboard' }), ' et crée une application (gratuit).'),

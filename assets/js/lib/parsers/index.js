@@ -124,10 +124,12 @@ const HEADER_MAP = {
   year: ['year', 'annee', 'année', 'release year', 'date'],
   tags: ['tags', 'tag', 'labels', 'mots-cles', 'mots clés', 'comment', 'comments', 'commentaire', 'grouping'],
   notes: ['notes', 'note', 'remarque', 'remarques'],
-  duration: ['duration', 'duree', 'durée', 'time', 'length', 'duration (ms)', 'totaltime', 'total time'],
+  duration: ['duration', 'duree', 'durée', 'time', 'length', 'duration (ms)', 'track duration (ms)',
+             'duration_ms', 'totaltime', 'total time'],
   playCount: ['play count', 'plays', 'playcount', 'lectures', 'nb lectures'],
   rating: ['rating', 'note', 'stars', 'etoiles'],
   location: ['location', 'path', 'file', 'chemin', 'filename'],
+  album: ['album', 'album name'],
   bitrate: ['bitrate', 'bit rate', 'debit', 'débit', 'kbps', 'quality', 'qualite', 'qualité'],
   format: ['format', 'type', 'kind', 'extension', 'codec'],
 };

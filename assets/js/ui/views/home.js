@@ -10,8 +10,8 @@ import { importDialog } from './library.js';
 const go = (v) => document.dispatchEvent(new CustomEvent('nav', { detail: v }));
 
 export function render(root) {
-  const nTracks = store.state.tracks.length;
-  const lastMatch = store.state.matches[0] || null;
+  const nTracks = store.myTracks().length;
+  const lastMatch = store.state.matches.filter((m) => (m.owner || 'kevin') === store.state.profile)[0] || null;
 
   const hero = h('div.hero', {},
     h('div.row', { style: { marginBottom: '10px' } },
@@ -34,7 +34,7 @@ export function render(root) {
       lastMatch ? lastMatch.name : 'Aucun match',
       lastMatch ? matchLine(lastMatch) : 'Playlist Spotify / Deezer → ta bibliothèque.', () => go('matcher')),
     tile('sessions', 'var(--grad-green)', 'Matchs enregistrés',
-      `${store.state.matches.length} match(s)`,
+      `${store.state.matches.filter(store.visible).length} match(s)`,
       'Rouvre un rapprochement pour ajuster les versions.', () => go('sessions')));
 
   const memCard = h('div.tile', { style: { marginTop: '16px' } },
@@ -47,8 +47,9 @@ export function render(root) {
   (async () => {
     await memory.load();
     const el = document.getElementById('home-memory');
-    if (el) el.textContent = memory.size()
-      ? `${memory.size()} choix de version mémorisés — ils seront réappliqués automatiquement.`
+    const n = memory.sizeFor(store.state.profile);
+    if (el) el.textContent = n
+      ? `${n} choix de version mémorisés — ils seront réappliqués automatiquement.`
       : 'Aucun choix mémorisé pour l\'instant. Valide des versions dans le Matcher.';
   })();
 

@@ -59,7 +59,8 @@ Le dédoublonnage (même titre + même artiste) est activé par défaut.
   automatiquement en ligne, grâce à la fonction Netlify `netlify/functions/resolve.mjs`
   (gratuite, sans dépendance, liste blanche de domaines). En local, l'app affiche la marche
   à suivre pour récupérer l'URL complète à la main.
-- **Spotify** : une configuration en 2 minutes, une seule fois (voir plus bas).
+- **Spotify** : ⚠ voir la mise en garde plus bas — Spotify refuse de livrer le contenu des
+  playlists aux applications personnelles. Le contournement est l'export CSV.
 - Sans URL, on peut aussi coller une liste de titres ou déposer un fichier
   (bloc « Autre source »).
 
@@ -121,11 +122,35 @@ figurer : c'est le cas si la bibliothèque a été importée depuis `database V2
 
 ---
 
-## Configurer Spotify (une seule fois)
+## Spotify : ce qui marche et ce qui ne marche pas
 
-Spotify n'autorise pas la lecture d'une playlist sans identification. On utilise le flux
-**Authorization Code with PKCE**, prévu pour les applications sans serveur : il ne demande
-**qu'un Client ID**, jamais de secret.
+**À lire avant de perdre du temps.** Spotify a durci l'accès à son API. Une application
+personnelle non validée par Spotify (statut « Development mode », le seul accessible sans
+dossier commercial) peut :
+
+| Accès | État |
+|---|---|
+| Lire le **nom** d'une playlist | ✅ |
+| Lire la **liste des titres** d'une playlist — même les tiennes | ❌ `403 Forbidden` |
+| Lire tes titres likés (`/me/tracks`) | ❌ `403 Forbidden` |
+| Lire un **album** | ✅ |
+| Rechercher dans le catalogue | ✅ |
+
+Ce n'est pas un défaut de K7 : la même requête échoue quel que soit le code. K7 le détecte et
+affiche la marche à suivre plutôt que de renvoyer une playlist vide.
+
+**Les contournements, du plus simple au plus lourd :**
+
+1. **Deezer** — colle un lien Deezer, tout fonctionne sans aucune configuration.
+2. **Export CSV** — passe la playlist Spotify dans un outil déjà validé par Spotify, par
+   exemple [exportify.net](https://exportify.net), puis dépose le CSV obtenu dans le Matcher
+   (bloc « Autre source »). K7 reconnaît nativement les colonnes d'Exportify.
+3. **Copier-coller** — une ligne `Artiste - Titre` par morceau dans « Autre source ».
+
+### Configurer quand même Spotify (albums, et au cas où la politique évoluerait)
+
+On utilise le flux **Authorization Code with PKCE**, prévu pour les applications sans
+serveur : il ne demande **qu'un Client ID**, jamais de secret.
 
 1. Aller sur <https://developer.spotify.com/dashboard> et **créer une app** (gratuit).
 2. Dans **Redirect URIs**, coller **exactement** l'URL de l'application, par exemple :
@@ -135,6 +160,8 @@ Spotify n'autorise pas la lecture d'une playlist sans identification. On utilise
 3. Cocher **Web API**, enregistrer, copier le **Client ID**.
 4. Dans l'app : **Réglages → Connexion Spotify** → coller le Client ID → **Enregistrer** →
    **Connecter Spotify**.
+5. Pour qu'Andy puisse s'en servir, l'ajouter dans **User Management** sur le dashboard
+   Spotify (nom + email Spotify, jusqu'à 25 personnes).
 
 Deezer ne demande rien : les playlists publiques sont lues directement.
 
@@ -142,13 +169,22 @@ Deezer ne demande rien : les playlists publiques sont lues directement.
 
 ## Équipe
 
-Deux profils, **Kévin** et **Andy**, choisis dans le bandeau du haut.
-Chaque match porte un propriétaire et un état **partagé** (visible par les deux) ou
-**privé** (visible seulement par son auteur).
+**Chacun son espace.** Kévin et Andy ont chacun leur bibliothèque, leurs matchs et leur
+mémoire des correspondances. On change d'espace avec le sélecteur de profil en haut à droite.
 
-En v1 les données vivent dans **le navigateur de chaque poste** : le partage réel entre les deux
-machines se fait par **Réglages → Exporter / Restaurer une sauvegarde**, ou passera par Supabase
-en v2 (voir plus bas).
+- La **bibliothèque** affiche la tienne par défaut ; un clic sur l'autre profil permet de
+  consulter la sienne **en lecture seule**, avec la possibilité de **cocher des morceaux et de
+  les copier chez soi**. Impossible de modifier ou supprimer chez l'autre.
+- Un **match est privé par défaut**. On le partage explicitement depuis l'onglet Matchs
+  (menu ⚙ → « Partager avec … »), et il apparaît alors chez l'autre avec la mention
+  « partagé par … ».
+- La **mémoire des correspondances** est propre à chaque profil : elle pointe vers des
+  morceaux d'une bibliothèque précise, le choix d'Andy n'aurait aucun sens chez Kévin.
+- Le **Matcher** travaille toujours sur TA bibliothèque, jamais sur celle de l'autre.
+
+⚠ Tant que la synchronisation cloud n'est pas branchée, tout cela vit **dans un seul
+navigateur**. Si Andy travaille sur sa propre machine, il repart d'une base vide : l'échange
+passe alors par **Réglages → Exporter / Restaurer une sauvegarde**, en attendant Supabase.
 
 ---
 

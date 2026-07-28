@@ -183,40 +183,76 @@ export async function disconnectSpotify() { await db.setMeta('spotifyToken', nul
 async function spotifyGet(url, token) {
   const res = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
   if (res.status === 401) throw new Error('NOT_CONNECTED');
-  if (res.status === 404) throw new Error('Playlist introuvable (ou non accessible avec ce compte).');
+  if (res.status === 403) throw new Error('SPOTIFY_FORBIDDEN');
+  if (res.status === 404) throw new Error('Playlist introuvable, ou non accessible avec ce compte.');
+  if (res.status === 429) throw new Error('Spotify limite temporairement les requêtes. Réessaie dans une minute.');
   if (!res.ok) throw new Error('Spotify a répondu ' + res.status + '.');
   return res.json();
 }
 
+/**
+ * Lecture d'une playlist ou d'un album Spotify.
+ *
+ * Attention : depuis le durcissement de l'accès développeur, une application en
+ * « Development mode » peut lire les métadonnées d'une playlist mais PAS son
+ * contenu — /playlists/{id}/tracks renvoie 403, et l'objet `tracks` disparaît de
+ * la réponse. Les albums et la recherche, eux, restent accessibles. On distingue
+ * donc explicitement ce cas pour pouvoir l'expliquer à l'utilisateur au lieu de
+ * lui renvoyer une playlist vide.
+ */
 async function fetchSpotify({ id, kind }, onProgress) {
   const token = await accessToken();
   const isAlbum = kind === 'album';
   const head = await spotifyGet(`https://api.spotify.com/v1/${isAlbum ? 'albums' : 'playlists'}/${id}`, token);
+  const name = head.name || (isAlbum ? 'Album Spotify' : 'Playlist Spotify');
 
   const entries = [];
-  const pushItems = (items) => {
-    for (const it of items) {
-      const t = isAlbum ? it : it.track;
-      if (!t || t.is_local === undefined && !t.name) continue;
-      if (!t.name) continue;
+  const push = (items) => {
+    for (const it of items || []) {
+      const t = isAlbum ? it : it?.track;
+      if (!t?.name) continue;
       entries.push({
         title: t.name,
         artist: (t.artists || []).map((a) => a.name).join(', '),
-        album: t.album?.name || head.name || '',
+        album: t.album?.name || (isAlbum ? name : ''),
         duration: t.duration_ms ? Math.round(t.duration_ms / 1000) : null,
       });
     }
   };
-  pushItems((isAlbum ? head.tracks?.items : head.tracks?.items) || []);
+
+  // Première page : parfois déjà incluse dans la réponse principale.
+  push(head.tracks?.items);
   let next = head.tracks?.next;
+
+  // Sinon (ou pour la suite), on interroge l'endpoint dédié.
+  if (!entries.length && !next) {
+    next = `https://api.spotify.com/v1/${isAlbum ? 'albums' : 'playlists'}/${id}/tracks?limit=100`;
+  }
+
   let guard = 0;
   while (next && guard++ < 40) {
-    const page = await spotifyGet(next, token);
-    pushItems(page.items || []);
+    let page;
+    try {
+      page = await spotifyGet(next, token);
+    } catch (e) {
+      if (e.message === 'SPOTIFY_FORBIDDEN' && !entries.length) {
+        const err = new Error('SPOTIFY_NO_PLAYLIST_ACCESS');
+        err.playlistName = name;
+        throw err;
+      }
+      throw e;
+    }
+    push(page.items);
     onProgress?.(entries.length, head.tracks?.total || entries.length);
     next = page.next;
   }
-  return { name: head.name || 'Playlist Spotify', entries };
+
+  if (!entries.length) {
+    const err = new Error('SPOTIFY_NO_PLAYLIST_ACCESS');
+    err.playlistName = name;
+    throw err;
+  }
+  return { name, entries };
 }
 
 /* ------------------------- Liens de partage courts ---------------------- */

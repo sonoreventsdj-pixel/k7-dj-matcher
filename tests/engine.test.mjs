@@ -161,6 +161,20 @@ test('qualité : niveaux et classement', () => {
   assert.ok(quality({ format: 'flac' }).rank > quality({ bitrate: 320 }).rank);
 });
 
+test('CSV Exportify (export de playlist Spotify) lu tel quel', () => {
+  const csv = [
+    '"Track URI","Track Name","Artist Name(s)","Album Name","Track Duration (ms)","Added At"',
+    '"spotify:track:abc","Voyage Voyage","Desireless","François","231000","2024-01-01"',
+    '"spotify:track:def","Hold On, I\'m Comin\'","Sam & Dave","Hold On","154000","2024-01-02"',
+  ].join('\n');
+  const t = tracksFromCSV(csv);
+  assert.equal(t.length, 2);
+  assert.equal(t[0].title, 'Voyage Voyage');
+  assert.equal(t[0].artist, 'Desireless');
+  assert.equal(t[0].duration, 231);
+  assert.equal(t[1].title, "Hold On, I'm Comin'", 'les virgules et apostrophes dans un champ cité');
+});
+
 test('débit lu depuis un CSV', () => {
   const t = tracksFromCSV('Title,Artist,Bitrate,Format\nX,Y,320,mp3');
   assert.equal(t[0].bitrate, 320);

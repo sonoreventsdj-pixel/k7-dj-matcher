@@ -19,28 +19,71 @@ export function render(root) {
   const wrap = h('div');
 
   /* ------------------------------- En-tête ------------------------------ */
+  const own = store.isOwnSpace();
+  const n = store.countTracks(store.state.space);
+
   wrap.append(h('div.card', {},
     h('div.card-head', {},
       h('div', {},
-        h('h2', { text: 'Bibliothèque' }),
-        h('div.sub', { text: `${store.state.tracks.length} morceau(x) — titre, artiste, BPM, tonalité, genre, année, débit, tags, notes` })),
+        h('div.row.row-tight', {},
+          h('h2', { text: 'Bibliothèque' }),
+          spaceSwitch(root)),
+        h('div.sub', { text: own
+          ? `${n.toLocaleString('fr-FR')} morceau(x) dans ta bibliothèque`
+          : `${n.toLocaleString('fr-FR')} morceau(x) dans la bibliothèque de ${store.profileName(store.state.space)} — lecture seule` })),
       h('div.row.row-tight',
         {},
-        btn('Importer', { variant: 'btn-primary', ico: 'upload', onClick: () => importDialog(root) }),
-        btn('', { ico: 'plus', title: 'Ajouter un morceau à la main', onClick: () => editDialog(null, root) }),
+        own ? btn('Importer', { variant: 'btn-primary', ico: 'upload', onClick: () => importDialog(root) }) : null,
+        own ? btn('', { ico: 'plus', title: 'Ajouter un morceau à la main', onClick: () => editDialog(null, root) }) : null,
         btn('', { ico: 'download', title: 'Exporter', onClick: (e) => exportMenu(e.currentTarget) }),
       )),
-    h('div.card-pad', {}, filtersBar(root), tableBlock(root)),
+    h('div.card-pad', {},
+      own ? null : readOnlyBanner(root),
+      filtersBar(root), tableBlock(root)),
   ));
 
   mount(root, wrap);
 }
 
+/** Bascule entre ma bibliothèque et celle de l'autre. */
+function spaceSwitch(root) {
+  const other = store.otherProfile();
+  const me = store.profile();
+  const chip = (p, active) => h('button.btn.btn-sm' + (active ? '.btn-primary' : ''), {
+    onclick: async () => { await store.setSpace(p.id); ui.page = 0; ui.selected.clear(); render(root); },
+  }, h('span.avatar.' + p.cls, { style: { width: '18px', height: '18px', fontSize: '9px' }, text: p.initials }),
+     h('span', { text: p.id === store.state.profile ? 'La mienne' : p.name }),
+     h('span.muted-3.small', { text: ` ${store.countTracks(p.id).toLocaleString('fr-FR')}` }));
+  return h('div.row.row-tight', { style: { marginLeft: '10px' } },
+    chip(me, store.state.space === me.id),
+    chip(other, store.state.space === other.id));
+}
+
+function readOnlyBanner(root) {
+  const who = store.profileName(store.state.space);
+  return h('div.row', { style: { marginBottom: '14px', padding: '11px 14px', borderRadius: 'var(--r-ctl)',
+      border: '1px solid color-mix(in srgb, var(--info) 40%, transparent)',
+      background: 'color-mix(in srgb, var(--info) 9%, transparent)' } },
+    h('span.badge.badge-info', { text: 'Lecture seule' }),
+    h('span.small', { text: `Tu consultes la bibliothèque de ${who}. Sélectionne des morceaux pour les copier chez toi.` }),
+    h('div.spacer'),
+    ui.selected.size
+      ? btn(`Copier ${ui.selected.size} morceau(x) chez moi`, { variant: 'btn-primary', sm: true, ico: 'copy',
+          onClick: async () => {
+            const res = await store.copyTracksToMe([...ui.selected]);
+            ui.selected.clear();
+            toast(`${res.added} morceau(x) copié(s)${res.skipped ? `, ${res.skipped} déjà présent(s)` : ''}`, 'ok');
+            render(root);
+          } })
+      : h('span.muted-3.small', { text: 'Aucune sélection' }));
+}
+
 /* ------------------------------- Filtres -------------------------------- */
 function filtersBar(root) {
   const rerender = debounce(() => render(root), 180);
-  const genres = [...new Set(store.state.tracks.map((t) => t.genre).filter(Boolean))].sort();
-  const tags = [...new Set(store.state.tracks.flatMap((t) => t.tags || []))].sort();
+  const inSpace = store.spaceTracks();
+  const genres = [...new Set(inSpace.map((t) => t.genre).filter(Boolean))].sort();
+  const tags = [...new Set(inSpace.flatMap((t) => t.tags || []))].sort();
 
   const search = h('div.search', { style: { flex: '1 1 220px', minWidth: '200px' } },
     h('input.input', {
@@ -62,12 +105,14 @@ function filtersBar(root) {
         const box = document.getElementById('lib-filters');
         box.classList.toggle('hidden');
       } }),
-      ui.selected.size ? btn(`Supprimer (${ui.selected.size})`, {
+      ui.selected.size && store.isOwnSpace() ? btn(`Supprimer (${ui.selected.size})`, {
         variant: 'btn-danger', sm: true, ico: 'trash',
         onClick: async () => {
           if (!await confirmDialog('Supprimer', `${ui.selected.size} morceau(x) seront retirés de la bibliothèque.`)) return;
-          await store.removeTracks([...ui.selected]);
-          ui.selected.clear(); toast('Morceaux supprimés', 'ok'); render(root);
+          try {
+            await store.removeTracks([...ui.selected]);
+            ui.selected.clear(); toast('Morceaux supprimés', 'ok'); render(root);
+          } catch (e) { toast(e.message, 'err'); }
         },
       }) : null,
     ),
@@ -87,7 +132,7 @@ function filtersBar(root) {
 
 export function filtered() {
   const q = ui.q.trim().toLowerCase();
-  let list = store.state.tracks.filter((t) => {
+  let list = store.spaceTracks().filter((t) => {
     if (q) {
       const hay = `${t.title} ${t.artist} ${t.album} ${t.genre} ${(t.tags || []).join(' ')} ${t.notes}`.toLowerCase();
       if (!hay.includes(q)) return false;
@@ -122,10 +167,13 @@ export function filtered() {
 /* -------------------------------- Table --------------------------------- */
 function tableBlock(root) {
   const list = filtered();
-  if (!store.state.tracks.length) {
-    return emptyState('Bibliothèque vide',
-      'Importe ton fichier Serato « database V2 », ta bibliothèque iTunes, un CSV, ou colle une liste de titres.',
-      btn('Importer une bibliothèque', { variant: 'btn-primary', ico: 'upload', onClick: () => importDialog(root) }));
+  if (!store.spaceTracks().length) {
+    return store.isOwnSpace()
+      ? emptyState('Ta bibliothèque est vide',
+          'Importe ton fichier Serato « database V2 », ta bibliothèque iTunes, un CSV, ou colle une liste de titres.',
+          btn('Importer une bibliothèque', { variant: 'btn-primary', ico: 'upload', onClick: () => importDialog(root) }))
+      : emptyState(`${store.profileName(store.state.space)} n'a rien importé`,
+          'Sa bibliothèque est vide pour l\'instant.');
   }
   if (!list.length) return emptyState('Aucun résultat', 'Aucun morceau ne correspond aux filtres.');
 
@@ -170,8 +218,12 @@ function tableBlock(root) {
 }
 
 function trackRow(t, root) {
-  const save = debounce(async (patch) => { await store.updateTrack(t.id, patch); }, 400);
-  const cell = (value, patchKey, opts = {}) => h('input.cell-edit', {
+  const editable = store.isOwnSpace();
+  const save = debounce(async (patch) => {
+    try { await store.updateTrack(t.id, patch); }
+    catch (e) { toast(e.message, 'err'); }
+  }, 400);
+  const cell = (value, patchKey, opts = {}) => h(editable ? 'input.cell-edit' : 'span', editable ? {
     value: value ?? '', type: opts.type || 'text',
     style: opts.width ? { maxWidth: opts.width } : null,
     oninput: (e) => {
@@ -180,7 +232,7 @@ function trackRow(t, root) {
       if (patchKey === 'tags') v = String(e.target.value).split(/[;,]/).map((s) => s.trim()).filter(Boolean);
       save({ [patchKey]: v });
     },
-  });
+  } : { text: value ?? '—', class: 'muted' });
 
   return h('tr', {},
     h('td', {}, h('label.check', {}, h('input', {
@@ -196,11 +248,14 @@ function trackRow(t, root) {
     h('td.num.mono.muted', { text: fmtDur(t.duration) }),
     h('td', {}, bitrateBadge(t)),
     h('td', { style: { minWidth: '120px' } }, cell((t.tags || []).join(', '), 'tags')),
-    h('td', {}, btn('', { ico: 'edit', sm: true, title: 'Éditer', onClick: () => editDialog(t, root) })),
+    h('td', {}, store.isOwnSpace()
+      ? btn('', { ico: 'edit', sm: true, title: 'Éditer', onClick: () => editDialog(t, root) })
+      : null),
   );
 }
 
 function keySelect(t, save) {
+  if (!store.isOwnSpace()) return t.camelot ? keyBadge(t.camelot) : h('span.muted-3', { text: '—' });
   const s = h('select.select', { style: { width: '104px', padding: '5px 8px', fontSize: '12.5px' },
     onchange: (e) => save({ camelot: e.target.value || null, key: e.target.value ? toClassic(e.target.value) : null }) });
   s.append(h('option', { value: '', text: '—' }));
@@ -392,7 +447,8 @@ function exportMenu(anchor) {
     }) },
     '-',
     { label: 'Vider la bibliothèque', onClick: async () => {
-      if (!await confirmDialog('Vider la bibliothèque', 'Tous les morceaux seront supprimés. Les matchs enregistrés perdront leurs correspondances.')) return;
+      if (!store.isOwnSpace()) { toast('On ne vide que sa propre bibliothèque.', 'err'); return; }
+      if (!await confirmDialog('Vider ma bibliothèque', 'Tous TES morceaux seront supprimés. Ceux de ' + store.profileName(store.otherProfile().id) + ' ne sont pas touchés.')) return;
       await store.clearLibrary(); toast('Bibliothèque vidée', 'ok');
       document.dispatchEvent(new CustomEvent('nav', { detail: 'library' }));
     } },

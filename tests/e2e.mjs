@@ -161,6 +161,69 @@ await step('export : crate Serato téléchargée', async () => {
   if (!name.endsWith('.crate')) throw new Error('fichier inattendu : ' + name);
 });
 
+await step('espaces séparés : Andy part d\'une bibliothèque vide', async () => {
+  // Kévin a la bibliothèque de démo ; on bascule sur Andy
+  await page.click('#profile-chip');
+  await page.waitForSelector('.menu');
+  await page.locator('.menu .menu-item:has-text("Andy")').click();
+  await page.waitForTimeout(500);
+  await page.click('[data-view=library]');
+  await page.waitForTimeout(500);
+  const txt = await page.locator('#outlet').innerText();
+  if (!/vide/i.test(txt)) throw new Error('la bibliothèque d\'Andy devrait être vide : ' + txt.slice(0, 120));
+});
+
+await step('Andy consulte la bibliothèque de Kévin en lecture seule', async () => {
+  await page.locator('button:has-text("Kévin")').first().click();
+  await page.waitForSelector('table.tbl tbody tr');
+  const txt = await page.locator('#outlet').innerText();
+  if (!/Lecture seule/.test(txt)) throw new Error('pas de bandeau lecture seule');
+  if (await page.locator('table.tbl tbody input.cell-edit').count()) throw new Error('les cellules ne devraient pas être éditables');
+});
+
+await step('Andy copie des morceaux chez lui', async () => {
+  const rows = page.locator('table.tbl tbody tr');
+  await rows.nth(0).locator('input[type=checkbox]').check();
+  await rows.nth(1).locator('input[type=checkbox]').check();
+  await page.waitForTimeout(300);
+  await page.click('button:has-text("Copier 2 morceau")');
+  await page.waitForTimeout(700);
+  await page.locator('button:has-text("La mienne")').click();
+  await page.waitForSelector('table.tbl tbody tr');
+  const n = await page.locator('table.tbl tbody tr').count();
+  if (n !== 2) throw new Error('Andy devrait avoir 2 morceaux, il en a ' + n);
+});
+
+await step('la bibliothèque de Kévin est intacte', async () => {
+  await page.click('#profile-chip');
+  await page.waitForSelector('.menu');
+  await page.locator('.menu .menu-item:has-text("Kévin")').click();
+  await page.waitForTimeout(500);
+  await page.click('[data-view=library]');
+  await page.waitForSelector('table.tbl tbody tr');
+  const sub = await page.locator('.card-head .sub').first().innerText();
+  if (!/40 morceau/.test(sub)) throw new Error('bibliothèque de Kévin altérée : ' + sub);
+});
+
+await step('un match est privé par défaut', async () => {
+  await page.click('[data-view=sessions]');
+  await page.waitForSelector('.sess');
+  const before = await page.locator('.sess').count();
+  await page.click('#profile-chip');
+  await page.waitForSelector('.menu');
+  await page.locator('.menu .menu-item:has-text("Andy")').click();
+  await page.waitForTimeout(400);
+  await page.click('[data-view=sessions]');
+  await page.waitForTimeout(500);
+  const after = await page.locator('.sess').count();
+  if (after >= before) throw new Error('Andy voit les matchs privés de Kévin');
+  // retour chez Kévin
+  await page.click('#profile-chip');
+  await page.waitForSelector('.menu');
+  await page.locator('.menu .menu-item:has-text("Kévin")').click();
+  await page.waitForTimeout(400);
+});
+
 await step('le module Setlist a bien disparu', async () => {
   if (await page.locator('[data-view=setlist]').count()) throw new Error('l\'onglet Setlist est encore là');
   await page.click('[data-view=settings]');

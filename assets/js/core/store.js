@@ -11,11 +11,36 @@ export const PROFILES = [
 export const state = {
   ready: false,
   theme: 'dark',
-  profile: 'kevin',
-  tracks: [],
+  profile: 'kevin',      // qui je suis
+  space: 'kevin',        // quel espace je consulte (le mien, ou celui de l'autre en lecture)
+  tracks: [],            // toutes les bibliothèques confondues, filtrées à l'affichage
   matches: [],
   currentMatchId: null,
 };
+
+/* -------------------------- Espaces de travail --------------------------
+   Chacun a sa bibliothèque, ses matchs, sa mémoire. On peut consulter
+   l'espace de l'autre en lecture seule, et y copier des morceaux.
+   ---------------------------------------------------------------------- */
+
+/** Est-ce que je regarde mon propre espace ? */
+export const isOwnSpace = () => state.space === state.profile;
+
+/** L'autre profil. */
+export const otherProfile = () => PROFILES.find((p) => p.id !== state.profile) || PROFILES[1];
+
+export async function setSpace(id) {
+  state.space = PROFILES.some((p) => p.id === id) ? id : state.profile;
+  emit('space');
+}
+
+/** Bibliothèque de l'espace consulté. */
+export const spaceTracks = () => state.tracks.filter((t) => (t.owner || 'kevin') === state.space);
+
+/** Ma bibliothèque à moi — c'est elle que le Matcher utilise. */
+export const myTracks = () => state.tracks.filter((t) => (t.owner || 'kevin') === state.profile);
+
+export const countTracks = (owner) => state.tracks.reduce((n, t) => n + ((t.owner || 'kevin') === owner ? 1 : 0), 0);
 
 const listeners = new Set();
 export const subscribe = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
@@ -33,6 +58,7 @@ export async function init() {
   state.theme = theme || 'dark';   // sombre par défaut, comme l'application My Projekt
   state.profile = profile || 'kevin';
   state.currentMatchId = curMa;
+  state.space = state.profile;
   state.ready = true;
   applyTheme();
   emit('init');
@@ -52,23 +78,33 @@ export const toggleTheme = () => setTheme(state.theme === 'dark' ? 'light' : 'da
 /* ------------------------------ Profils --------------------------------- */
 export const profile = () => PROFILES.find((p) => p.id === state.profile) || PROFILES[0];
 export async function setProfile(id) {
-  state.profile = id; await db.setMeta('profile', id); emit('profile');
+  state.profile = id;
+  state.space = id;                 // on revient toujours chez soi en changeant de profil
+  await db.setMeta('profile', id);
+  emit('profile');
 }
 export const profileName = (id) => PROFILES.find((p) => p.id === id)?.name || id || '—';
 
-/** Un objet est visible s'il est partagé ou s'il appartient au profil courant. */
-export const visible = (o) => o.shared !== false || o.owner === state.profile;
+/** Un match est visible si je l'ai créé, ou si son auteur l'a explicitement partagé. */
+export const visible = (o) => o.owner === state.profile || o.shared === true;
+
+/** Les matchs de l'espace consulté (les miens, ou ceux que l'autre a partagés). */
+export const spaceMatches = () => state.matches.filter((m) =>
+  (m.owner || 'kevin') === state.space && (state.space === state.profile || m.shared === true));
 
 /* ---------------------------- Bibliothèque ------------------------------ */
-export async function addTracks(tracks, { dedupe = true } = {}) {
-  const existing = new Map(state.tracks.map((t) => [fp(t), t]));
+export async function addTracks(tracks, { dedupe = true, owner = null } = {}) {
+  const target = owner || state.profile;
+  // Le dédoublonnage est propre à chaque bibliothèque : Kévin et Andy peuvent
+  // très bien posséder le même morceau chacun de son côté.
+  const existing = new Map(state.tracks.filter((t) => (t.owner || 'kevin') === target).map((t) => [fp(t), t]));
   const toAdd = [];
   let skipped = 0;
   for (const t of tracks) {
     if (!t.title && !t.artist) continue;
     const k = fp(t);
     if (dedupe && existing.has(k)) { skipped++; continue; }
-    const rec = { ...t, id: t.id || uid(), fingerprint: k, owner: t.owner || state.profile };
+    const rec = { ...t, id: uid(), fingerprint: k, owner: target };
     existing.set(k, rec);
     toAdd.push(rec);
   }
@@ -86,6 +122,9 @@ const fp = (t) => (String(t.title || '').toLowerCase().replace(/\s+/g, ' ').trim
 export async function updateTrack(id, patch) {
   const i = state.tracks.findIndex((t) => t.id === id);
   if (i < 0) return null;
+  if ((state.tracks[i].owner || 'kevin') !== state.profile) {
+    throw new Error('Cette bibliothèque appartient à ' + profileName(state.tracks[i].owner) + ' : elle est en lecture seule.');
+  }
   const t = { ...state.tracks[i], ...patch };
   t.fingerprint = fp(t);
   state.tracks[i] = t;
@@ -95,6 +134,9 @@ export async function updateTrack(id, patch) {
 }
 
 export async function removeTracks(ids) {
+  const mine = new Set(state.tracks.filter((t) => (t.owner || 'kevin') === state.profile).map((t) => t.id));
+  const refused = ids.filter((id) => !mine.has(id));
+  if (refused.length) throw new Error('Impossible de supprimer des morceaux dans la bibliothèque de quelqu\'un d\'autre.');
   const set = new Set(ids);
   await db.bulkDelete('tracks', ids);
   state.tracks = state.tracks.filter((t) => !set.has(t.id));
@@ -103,17 +145,29 @@ export async function removeTracks(ids) {
 
 export const trackById = (id) => state.tracks.find((t) => t.id === id) || null;
 
+/** Vide uniquement MA bibliothèque. */
 export async function clearLibrary() {
-  await db.clearStore('tracks');
-  state.tracks = [];
+  const mine = state.tracks.filter((t) => (t.owner || 'kevin') === state.profile).map((t) => t.id);
+  await db.bulkDelete('tracks', mine);
+  const set = new Set(mine);
+  state.tracks = state.tracks.filter((t) => !set.has(t.id));
   emit('tracks');
+}
+
+/** Recopie des morceaux de l'espace consulté vers le mien. */
+export async function copyTracksToMe(ids) {
+  const set = new Set(ids);
+  const src = state.tracks.filter((t) => set.has(t.id));
+  if (!src.length) return { added: 0, skipped: 0 };
+  const copies = src.map((t) => ({ ...t, id: undefined, owner: state.profile, source: t.source, addedAt: Date.now() }));
+  return addTracks(copies, { dedupe: true });
 }
 
 /* ------------------------------- Matchs --------------------------------- */
 export function newMatch(name, rows, meta = {}) {
   return {
     id: uid(), kind: 'match', name, rows, ...meta,
-    owner: state.profile, shared: true,
+    owner: state.profile, shared: false,   // privé par défaut : on partage à la demande
     createdAt: Date.now(), updatedAt: Date.now(),
   };
 }
