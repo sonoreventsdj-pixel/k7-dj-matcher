@@ -24,10 +24,8 @@ let outlet = null;
 
 /* ------------------------------- Shell ---------------------------------- */
 function buildShell() {
-  const logo = h('div.logo', { title: 'K7' });
-  logo.innerHTML = `<svg viewBox="0 0 50 40" fill="none" aria-label="K7">
-    <path d="M3 6h6v11.5L21 6h8L15.5 19.5 29 34h-8.5L9 22v12H3z" fill="#fff"/>
-    <path d="M33 6h14v4.4L39.6 34h-6.2l7.3-23.2H33z" fill="#fff" opacity=".9"/></svg>`;
+  const logo = h('div.logo', { title: 'K7 — Sonor Events' },
+    h('img', { src: 'assets/img/k7-logo-blanc.svg', alt: 'K7', width: 44, height: 44 }));
 
   const nav = h('nav.sidebar', {}, logo);
   for (const v of VIEWS) {

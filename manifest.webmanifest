@@ -1,0 +1,17 @@
+{
+  "name": "K7 — Sonor Events",
+  "short_name": "K7",
+  "description": "Bibliothèque DJ, matching de playlists Spotify/Deezer et export de crates Serato.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0F1014",
+  "theme_color": "#0F1014",
+  "lang": "fr",
+  "icons": [
+    { "src": "assets/img/favicon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "assets/img/favicon-48.png", "sizes": "48x48", "type": "image/png" },
+    { "src": "assets/img/apple-touch-icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "assets/img/k7-app-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

@@ -4,6 +4,7 @@
 import { download, fmtDur, fmtDate } from '../../core/util.js';
 import { toClassic } from '../camelot.js';
 import { buildCrate, crateFilename } from './serato.js';
+import { logoDataUri } from '../brand.js';
 
 /* ------------------------------- CSV ------------------------------------ */
 const cell = (v) => {
@@ -78,29 +79,34 @@ export function printDocument({ title, subtitle, sections, footer }) {
     @page { margin: 14mm; }
     * { box-sizing: border-box; }
     body { font: 12px/1.5 -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #16161d; margin: 0; }
-    header { border-bottom: 2px solid #3B39A8; padding-bottom: 10px; margin-bottom: 18px; }
+    header { border-bottom: 2px solid #5C3B8A; padding-bottom: 10px; margin-bottom: 18px;
+             display: flex; align-items: center; gap: 12px; }
+    header img { width: 38px; height: 38px; flex: 0 0 38px; }
     h1 { font-size: 21px; margin: 0 0 3px; letter-spacing: -.01em; }
     .sub { color: #5b5b6b; font-size: 12px; }
-    h2 { font-size: 14px; margin: 22px 0 8px; color: #3B39A8; }
+    h2 { font-size: 14px; margin: 22px 0 8px; color: #5C3B8A; }
     table { width: 100%; border-collapse: collapse; }
     th { text-align: left; font-size: 9.5px; text-transform: uppercase; letter-spacing: .04em;
          color: #6b6b7b; border-bottom: 1px solid #d8d8e2; padding: 5px 6px; }
     td { padding: 6px; border-bottom: 1px solid #eeeef4; vertical-align: top; }
     tr { break-inside: avoid; }
     td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-    .k { display: inline-block; padding: 1px 6px; border-radius: 99px; background: #efeaf9; color: #4c1d95; font-size: 10px; font-weight: 700; }
+    .k { display: inline-block; padding: 1px 6px; border-radius: 99px; background: #efeaf9; color: #5C3B8A; font-size: 10px; font-weight: 700; }
     .b { display: inline-block; padding: 1px 6px; border-radius: 99px; background: #e6effb; color: #1d4f95; font-size: 10px; font-weight: 700; }
     .note { color: #6b6b7b; font-size: 11px; margin: 4px 0 10px; }
     footer { margin-top: 24px; border-top: 1px solid #d8d8e2; padding-top: 8px; color: #8a8a99; font-size: 10px; }
     @media print { .noprint { display: none; } }
     .noprint { position: fixed; top: 12px; right: 12px; }
     .noprint button { font: inherit; padding: 9px 16px; border-radius: 10px; border: 0;
-      background: linear-gradient(120deg,#3B39A8,#7D54BF,#2A82D6); color:#fff; cursor: pointer; }
+      background: linear-gradient(135deg,#201F54,#5C3B8A,#2162A1); color:#fff; cursor: pointer; }
   `;
   const html = `<!doctype html><html lang="fr"><head><meta charset="utf-8">
     <title>${esc(title)}</title><style>${css}</style></head><body>
     <div class="noprint"><button onclick="window.print()">Imprimer / PDF</button></div>
-    <header><h1>${esc(title)}</h1>${subtitle ? `<div class="sub">${esc(subtitle)}</div>` : ''}</header>
+    <header>
+      <img src="${logoDataUri({ fill: 'gradient', size: 38 })}" alt="K7">
+      <div><h1>${esc(title)}</h1>${subtitle ? `<div class="sub">${esc(subtitle)}</div>` : ''}</div>
+    </header>
     ${sections.map((s) => `
       ${s.title ? `<h2>${esc(s.title)}</h2>` : ''}
       ${s.note ? `<div class="note">${esc(s.note)}</div>` : ''}

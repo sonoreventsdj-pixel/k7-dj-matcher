@@ -14,7 +14,9 @@ export function render(root) {
   const lastMatch = store.state.matches[0] || null;
 
   const hero = h('div.hero', {},
-    h('h2', { text: `Bonjour ${store.profile().name} 👋` }),
+    h('div.row', { style: { marginBottom: '10px' } },
+      h('img.hero-logo', { src: 'assets/img/k7-logo-blanc.svg', alt: 'K7' }),
+      h('h2', { text: `Bonjour ${store.profile().name} 👋` })),
     h('p', { text: nTracks
       ? 'Colle une URL de playlist Spotify ou Deezer : on la confronte à ta bibliothèque, tu valides les bonnes versions, et l\'outil s\'en souvient pour la prochaine fois.'
       : 'Première étape : importe ta bibliothèque Serato ou iTunes. Ensuite tu pourras matcher n\'importe quelle playlist Spotify ou Deezer.' }),
