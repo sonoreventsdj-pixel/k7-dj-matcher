@@ -17,6 +17,8 @@ import * as playlist from '../../lib/playlist.js';
 import * as db from '../../core/db.js';
 import { keyBadge, bpmBadge, bitrateBadge, btn, stat, emptyState } from '../components.js';
 import { importDialog, crateToast } from './library.js';
+import * as preview from '../../lib/preview.js';
+import * as sources from '../../lib/sources.js';
 
 const ui = {
   screen: 'form',
@@ -36,8 +38,13 @@ const ui = {
 };
 
 let session = null;
+let sites = [];                       // sites de téléchargement (Réglages)
+let currentRoot = null;
+preview.onChange(() => { if (currentRoot && ui.screen === 'results') render(currentRoot); });
 
 export function render(root) {
+  currentRoot = root;
+  if (!sites.length) sources.list().then((l) => { if (l.length) { sites = l; if (ui.screen === 'results') render(root); } });
   const cur = store.currentMatch();
   if (cur && ui.screen === 'form' && !session) { session = cur; ui.screen = 'results'; }
   if (ui.screen === 'results' && !session) ui.screen = 'form';
@@ -489,6 +496,8 @@ function matchRow(r, index, root, persist) {
         chosen ? bitrateBadge(chosen, { compact: true }) : null,
       )),
     h('div.match-meta', {},
+      previewButton(r),
+      !r.chosenId ? siteButtons(r) : null,
       r.fromMemory ? h('span.badge.badge-info', { title: 'Choix repris de la mémoire', text: '★ mémorisé' }) : null,
       (r.altIds || []).length ? h('span.badge.badge-info', { text: `+${r.altIds.length} alt.` }) : null,
       chosen?.playCount ? h('span.muted-3.small.mono', { text: `${chosen.playCount} ▶` }) : null,
@@ -498,6 +507,37 @@ function matchRow(r, index, root, persist) {
   const row = h('div.match-row.' + statusCls + (isOpen ? '.open' : ''), {}, head);
   if (isOpen) row.append(candidateList(r, root, persist));
   return row;
+}
+
+/** Bouton ▶ : extrait de 30 s du titre demandé (catalogue Deezer). */
+function previewButton(r) {
+  const key = 'row:' + r.id;
+  const on = preview.playingKey() === key;
+  return h('button.btn.btn-ghost.btn-sm.k7-play' + (on ? '.on' : ''), {
+    title: on ? 'Arrêter l\'extrait' : 'Écouter 30 s pour reconnaître le titre',
+    text: on ? '■' : '▶',
+    onclick: async (e) => {
+      e.stopPropagation();
+      try {
+        const f = await preview.toggle(key, r.source.artist, r.source.title);
+        if (f && !f.exact) toast('Extrait le plus proche : ' + f.label);
+      } catch (err) { toast(err.message, 'warn'); }
+    },
+  });
+}
+
+/** Boutons d'ouverture des sites de téléchargement pour un titre à récupérer. */
+function siteButtons(r) {
+  if (!sites.length) return null;
+  return h('span.row.row-tight', {}, sites.map((site) => h('button.btn.btn-sm.k7-site', {
+    title: `Chercher « ${sources.query(r.source)} » sur ${site.name}`,
+    text: site.name + ' ↗',
+    onclick: async (e) => {
+      e.stopPropagation();
+      const copied = await sources.open(site, r.source);
+      if (copied) toast(`Recherche copiée : colle-la dans ${site.name} (Cmd + V)`, 'ok');
+    },
+  })));
 }
 
 /** Enregistre la décision courante dans la mémoire. */

@@ -8,6 +8,7 @@ import * as memory from '../../lib/memory.js';
 import { exportJSON, toCSV } from '../../lib/exporters/index.js';
 import { demoTracks, DEMO_PLAYLIST } from '../../core/seed.js';
 import * as playlist from '../../lib/playlist.js';
+import * as sources from '../../lib/sources.js';
 import { btn } from '../components.js';
 
 export function render(root) {
@@ -146,6 +147,32 @@ export function render(root) {
         : btn('Connecter mon Spotify', { sm: true, variant: 'btn-primary', onClick: () => playlist.connectSpotify('settings') }));
   })();
 
+  /* ------------------------ Sites de téléchargement --------------------- */
+  const srcBox = h('div.card-pad.grid', { style: { gap: '10px' } });
+  const srcCard = h('div.card', {},
+    h('div.card-head', {}, h('div', {}, h('h2', { text: 'Sites de téléchargement' }),
+      h('div.sub', { text: 'Pour chaque titre « À récupérer », K7 affiche un bouton par site qui ouvre la recherche du titre. Le téléchargement se fait depuis ton compte, comme d\'habitude.' }))),
+    srcBox);
+  (async () => {
+    const list = (await sources.list()).map((x) => ({ ...x }));
+    const draw = () => {
+      srcBox.replaceChildren(
+        ...list.map((site, i) => h('div.src-row', {},
+          h('input.input', { value: site.name, placeholder: 'Nom (ex. FuviClan)', oninput: (e) => { site.name = e.target.value; } }),
+          h('input.input', { value: site.url, placeholder: 'https://… — mets {q} à l\'endroit de la recherche', oninput: (e) => { site.url = e.target.value; } }),
+          btn('', { ico: 'trash', sm: true, title: 'Retirer ce site', onClick: () => { list.splice(i, 1); draw(); } }))),
+        h('p.muted-3.small', { text: 'Adresse avec {q} (ex. https://site.com/recherche?q={q}) : la recherche s\'ouvre directement. Sans {q} : K7 ouvre le site et copie « artiste titre », tu n\'as qu\'à coller.' }),
+        h('div.row.row-tight', {},
+          btn('Ajouter un site', { sm: true, ico: 'plus', onClick: () => { list.push({ id: 'site' + Date.now(), name: '', url: '' }); draw(); } }),
+          h('div.spacer'),
+          btn('Enregistrer', { sm: true, variant: 'btn-primary', ico: 'check', onClick: async () => {
+            const saved = await sources.save(list);
+            toast(`${saved.length} site(s) enregistré(s)`, 'ok');
+          } })));
+    };
+    draw();
+  })();
+
   /* -------------------------------- À propos ---------------------------- */
   const about = h('div.card', {},
     h('div.card-head', {}, h('div', {}, h('h2', { text: 'À propos' }))),
@@ -154,6 +181,6 @@ export function render(root) {
       h('p.muted-3.small', { style: { marginTop: '8px' }, text: 'v1 — persistance locale (IndexedDB). Le partage cloud Kévin ↔ Andy arrive en v2 via Supabase.' })));
 
   mount(root, h('div.grid', { style: { gap: '16px' } },
-    memCard, spotifyCard, appearance, team, data, about));
+    memCard, spotifyCard, srcCard, appearance, team, data, about));
 }
 

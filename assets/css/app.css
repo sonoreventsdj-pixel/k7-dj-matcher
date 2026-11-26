@@ -160,3 +160,10 @@
   .modal { max-height: 92vh; }
   table.tbl th, table.tbl td { padding: 9px 8px; }
 }
+
+/* Extraits 30 s et sites de téléchargement (Matcher) */
+.k7-play { width: 30px; height: 30px; padding: 0; justify-content: center; font-size: 12px; border-radius: 50%; }
+.k7-play.on { background: var(--mp-primary); color: #fff; }
+.k7-site { padding: 5px 10px; font-size: 12px; }
+.src-row { display: grid; grid-template-columns: 160px 1fr auto; gap: 8px; align-items: center; }
+@media (max-width: 640px) { .src-row { grid-template-columns: 1fr; } }
