@@ -122,50 +122,34 @@ figurer : c'est le cas si la bibliothèque a été importée depuis `database V2
 
 ---
 
-## Spotify : ce qui marche et ce qui ne marche pas
+## Spotify : ça marche, sans rien configurer
 
-**À lire avant de perdre du temps.** Spotify a durci l'accès à son API. Une application
-personnelle non validée par Spotify (statut « Development mode », le seul accessible sans
-dossier commercial) peut :
+K7 lit **n'importe quelle playlist Spotify publique** — y compris celles créées par d'autres
+personnes — en passant par la **page « embed »** de Spotify. Cette page
+(`open.spotify.com/embed/playlist/<id>`) contient la liste complète des titres dans son code,
+accessible sans compte, sans token, sans clé. C'est la même donnée que voit n'importe qui ouvre
+le lecteur intégré d'une playlist.
 
-| Accès | État |
-|---|---|
-| Lire le **nom** d'une playlist | ✅ |
-| Lire la **liste des titres** d'une playlist — même les tiennes | ❌ `403 Forbidden` |
-| Lire tes titres likés (`/me/tracks`) | ❌ `403 Forbidden` |
-| Lire un **album** | ✅ |
-| Rechercher dans le catalogue | ✅ |
+Une petite fonction serveur incluse dans le projet (`netlify/functions/plread.mjs`) récupère
+cette page et en extrait titres, artistes et durées. **Aucune configuration.** Colle l'URL,
+lance le matching.
 
-Ce n'est pas un défaut de K7 : la même requête échoue quel que soit le code. K7 le détecte et
-affiche la marche à suivre plutôt que de renvoyer une playlist vide.
+**Vérifié en production** sur de vraies playlists : *Soirée mariage* (100 titres, créée par
+quelqu'un d'autre), *18.07 after* (8 titres), *Today's Top Hits* (50). Toutes lues intégralement.
 
-**Les contournements, du plus simple au plus lourd :**
+**La seule limite :** l'aperçu public plafonne à **100 titres**. Pour une playlist plus longue,
+K7 charge les 100 premiers et le signale ; complète alors avec un export CSV
+([exportify.net](https://exportify.net), lu nativement) ou en collant les titres restants.
 
-1. **Deezer** — colle un lien Deezer, tout fonctionne sans aucune configuration.
-2. **Export CSV** — passe la playlist Spotify dans un outil déjà validé par Spotify, par
-   exemple [exportify.net](https://exportify.net), puis dépose le CSV obtenu dans le Matcher
-   (bloc « Autre source »). K7 reconnaît nativement les colonnes d'Exportify.
-3. **Copier-coller** — une ligne `Artiste - Titre` par morceau dans « Autre source ».
+> Pourquoi pas l'API officielle ? Depuis février 2026, elle ne livre le contenu d'une playlist
+> qu'à son propriétaire, et l'*Extended Quota Mode* qui lèverait cette limite est réservé aux
+> entreprises de 250 000+ utilisateurs. La page embed contourne tout cela proprement, en lecture
+> seule, sur des données déjà publiques.
 
-### Configurer quand même Spotify (albums, et au cas où la politique évoluerait)
+**Deezer** fonctionne aussi sans configuration, sans la limite des 100 titres.
 
-On utilise le flux **Authorization Code with PKCE**, prévu pour les applications sans
-serveur : il ne demande **qu'un Client ID**, jamais de secret.
-
-1. Aller sur <https://developer.spotify.com/dashboard> et **créer une app** (gratuit).
-2. Dans **Redirect URIs**, coller **exactement** l'URL de l'application, par exemple :
-   - en local : `http://localhost:8000/`
-   - en ligne : `https://k7-dj.netlify.app/`
-   (l'URL exacte à utiliser est affichée dans **Réglages → Connexion Spotify**)
-3. Cocher **Web API**, enregistrer, copier le **Client ID**.
-4. Dans l'app : **Réglages → Connexion Spotify** → coller le Client ID → **Enregistrer** →
-   **Connecter Spotify**.
-5. Pour qu'Andy puisse s'en servir, l'ajouter dans **User Management** sur le dashboard
-   Spotify (nom + email Spotify, jusqu'à 25 personnes).
-
-Deezer ne demande rien : les playlists publiques sont lues directement.
-
----
+Une connexion Spotify par compte (Réglages → Connexion Spotify) reste possible en complément,
+utile pour tes propres playlists, mais elle n'est plus nécessaire.
 
 ## Équipe
 

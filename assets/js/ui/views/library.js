@@ -16,6 +16,9 @@ const ui = {
 };
 
 export function render(root) {
+  // Un rendu différé (recherche, filtres) peut arriver après un changement de
+  // vue : dans ce cas on ne touche pas à l'affichage.
+  if (window.__k7CurrentView && window.__k7CurrentView() !== 'library') return;
   const wrap = h('div');
 
   /* ------------------------------- En-tête ------------------------------ */
@@ -377,7 +380,10 @@ export function importDialog(root, onDone) {
     title: 'Importer dans la bibliothèque',
     width: '620px',
     body: h('div', {}, tabs, paneFile, paneText,
-      h('label.check', { style: { marginTop: '16px' } }, dedupe, 'Ignorer les doublons (même titre + artiste)')),
+      h('div', { style: { marginTop: '16px' } },
+        h('label.check', {}, dedupe, 'Ne pas ré-ajouter les doublons (même titre + artiste)'),
+        h('div.small.muted-3', { style: { marginTop: '6px' },
+          text: 'Un doublon n\'est pas dupliqué : ses infos manquantes (débit, format, BPM, année…) sont complétées sur le morceau déjà présent. Idéal pour ré-importer ta bibliothèque iTunes et récupérer le débit sans casser tes matchs.' }))),
     actions: [
       { label: 'Annuler' },
       { label: 'Importer', cls: 'btn-primary', onClick: async () => {
@@ -398,7 +404,10 @@ export function importDialog(root, onDone) {
           }
           if (!tracks.length) { toast('Aucun morceau détecté dans ce fichier.', 'err'); return false; }
           const res = await store.addTracks(tracks, { dedupe: dedupe.checked });
-          toast(`${res.added} morceau(x) importé(s)${res.skipped ? `, ${res.skipped} doublon(s) ignoré(s)` : ''}`, 'ok');
+          const parts = [`${res.added} importé(s)`];
+          if (res.enriched) parts.push(`${res.enriched} complété(s) (débit, format…)`);
+          if (res.skipped) parts.push(`${res.skipped} inchangé(s)`);
+          toast(parts.join(' · '), 'ok');
           onDone?.(res);
           if (root) render(root);
         } catch (err) {

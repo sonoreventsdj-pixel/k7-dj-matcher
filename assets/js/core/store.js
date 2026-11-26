@@ -93,27 +93,59 @@ export const spaceMatches = () => state.matches.filter((m) =>
   (m.owner || 'kevin') === state.space && (state.space === state.profile || m.shared === true));
 
 /* ---------------------------- Bibliothèque ------------------------------ */
-export async function addTracks(tracks, { dedupe = true, owner = null } = {}) {
+/* Champs qu'un ré-import peut compléter sur un morceau déjà présent, sans jamais
+   écraser une valeur existante (les corrections manuelles de Kévin sont protégées). */
+const ENRICH_FIELDS = ['bitrate', 'format', 'bpm', 'year', 'genre', 'album', 'duration', 'key', 'camelot', 'location', 'energy'];
+const isBlank = (v) => v === null || v === undefined || v === '' || v === 0;
+function enrichPatch(cur, inc) {
+  const patch = {};
+  for (const f of ENRICH_FIELDS) {
+    if (isBlank(cur[f]) && !isBlank(inc[f])) patch[f] = inc[f];
+  }
+  return Object.keys(patch).length ? patch : null;
+}
+
+const locKey = (t) => String(t.location || '').trim().toLowerCase();
+
+export async function addTracks(tracks, { dedupe = true, owner = null, enrich = true } = {}) {
   const target = owner || state.profile;
   // Le dédoublonnage est propre à chaque bibliothèque : Kévin et Andy peuvent
   // très bien posséder le même morceau chacun de son côté.
-  const existing = new Map(state.tracks.filter((t) => (t.owner || 'kevin') === target).map((t) => [fp(t), t]));
+  const mine = state.tracks.filter((t) => (t.owner || 'kevin') === target);
+  const byFp = new Map(mine.map((t) => [fp(t), t]));
+  // Index par chemin de fichier : plus stable que « titre + artiste » si le
+  // parseur a évolué depuis le premier import. Évite les doublons au ré-import.
+  const byLoc = new Map();
+  for (const t of mine) { const l = locKey(t); if (l) byLoc.set(l, t); }
   const toAdd = [];
+  const toUpdate = [];
   let skipped = 0;
+  let enriched = 0;
   for (const t of tracks) {
     if (!t.title && !t.artist) continue;
-    const k = fp(t);
-    if (dedupe && existing.has(k)) { skipped++; continue; }
-    const rec = { ...t, id: uid(), fingerprint: k, owner: target };
-    existing.set(k, rec);
+    const l = locKey(t);
+    const cur = (l && byLoc.get(l)) || byFp.get(fp(t));
+    if (dedupe && cur) {
+      // Doublon : au lieu d'ignorer bêtement, on complète les infos manquantes
+      // (débit, format…) sur le morceau déjà présent, en gardant son id — les
+      // matchs et la mémoire des choix, qui pointent vers cet id, restent intacts.
+      const patch = enrich ? enrichPatch(cur, t) : null;
+      if (patch) { Object.assign(cur, patch); toUpdate.push(cur); enriched++; }
+      else skipped++;
+      continue;
+    }
+    const rec = { ...t, id: uid(), fingerprint: fp(t), owner: target };
+    byFp.set(rec.fingerprint, rec);
+    if (l) byLoc.set(l, rec);
     toAdd.push(rec);
   }
   if (toAdd.length) {
     await db.bulkPut('tracks', toAdd);
     state.tracks = state.tracks.concat(toAdd);
   }
-  emit('tracks');
-  return { added: toAdd.length, skipped };
+  if (toUpdate.length) await db.bulkPut('tracks', toUpdate);
+  if (toAdd.length || toUpdate.length) emit('tracks');
+  return { added: toAdd.length, skipped, enriched };
 }
 
 const fp = (t) => (String(t.title || '').toLowerCase().replace(/\s+/g, ' ').trim() + '|' +

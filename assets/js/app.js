@@ -22,6 +22,10 @@ const VIEWS = [
 let current = 'home';
 let outlet = null;
 
+/** Vue actuellement affichée. Les rendus différés (anti-rebond) s'en servent
+    pour ne pas écraser une vue que l'utilisateur vient d'ouvrir. */
+export const currentViewId = () => current;
+
 /* ------------------------------- Shell ---------------------------------- */
 function buildShell() {
   const logo = h('div.logo', { title: 'K7 — Sonor Events' },
@@ -95,6 +99,7 @@ function renderCurrent() {
   catch (e) { console.error(e); mount(outlet, h('div.card.card-pad', {}, h('h2', { text: 'Erreur' }), h('p.muted', { text: e.message }))); }
 }
 
+window.__k7CurrentView = currentViewId;
 document.addEventListener('nav', (e) => navigate(e.detail));
 window.addEventListener('hashchange', () => navigate(location.hash.slice(1) || 'home'));
 

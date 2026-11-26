@@ -10,22 +10,29 @@ import {
 } from '../../core/util.js';
 import * as store from '../../core/store.js';
 import * as memory from '../../lib/memory.js';
-import { parseFile, tracksFromText, tracksFromCSV } from '../../lib/parsers/index.js';
+import { parseFile, tracksFromText, tracksFromCSV, quality } from '../../lib/parsers/index.js';
 import { matchPlaylist, summarize } from '../../lib/matching.js';
-import { exportM3U8, exportCrate, toCSV, printDocument, printShoppingList, slug } from '../../lib/exporters/index.js';
+import { exportM3U8, exportCrate, exportItunesXML, toCSV, printDocument, printShoppingList, slug } from '../../lib/exporters/index.js';
 import * as playlist from '../../lib/playlist.js';
+import * as db from '../../core/db.js';
 import { keyBadge, bpmBadge, bitrateBadge, btn, stat, emptyState } from '../components.js';
 import { importDialog, crateToast } from './library.js';
 
 const ui = {
   screen: 'form',
   open: new Set(),
+  showAll: new Set(),        // lignes dont on montre TOUTES les versions
   filter: 'all',
   progress: 0,
   progressLabel: '',
   url: '',
   exportSets: { main: true, alt: false, missing: true },
-  exportFormats: { crate: true, m3u8: false, csv: false, pdf: true },
+  // Formats PAR LOT : les morceaux qu'on possède partent en playlist iTunes
+  // (Kévin ajuste dans iTunes avant de passer en Serato), la liste
+  // « à récupérer » part en PDF (liste de courses). Pas de PDF des versions
+  // originales sauf demande explicite.
+  formatsLib: { m3u8: true, itunes: false, crate: false, csv: false, pdf: false },
+  formatsMissing: { pdf: true, csv: false },
 };
 
 let session = null;
@@ -53,33 +60,18 @@ function formScreen(root) {
       if (!v) urlHint.textContent = '';
       else if (!d) urlHint.textContent = 'Lien non reconnu — il doit contenir /playlist/.';
       else if (d.provider === 'short') urlHint.textContent = 'Lien de partage : il sera converti automatiquement au lancement.';
-      else if (d.provider === 'spotify' && d.kind !== 'album') urlHint.textContent = 'Playlist Spotify détectée. Attention : Spotify refuse souvent d\'en livrer le contenu (voir Réglages).';
+      else if (d.provider === 'spotify' && d.kind !== 'album') urlHint.textContent = 'Playlist Spotify détectée.';
       else urlHint.textContent = `${d.provider === 'deezer' ? 'Deezer' : 'Spotify'} détecté${d.kind === 'album' ? ' (album)' : ''}.`;
     },
   });
   const dedupe = h('input', { type: 'checkbox', checked: true });
   const nameInput = h('input.input', { placeholder: 'Nom du match — laissé vide, on reprend le nom de la playlist' });
 
-  /* ---- État Spotify ---- */
-  const spotifyBox = h('div.row.small.muted', { style: { marginTop: '6px' } });
-  (async () => {
-    const connected = await playlist.isConnected();
-    const clientId = await playlist.getClientId();
-    spotifyBox.textContent = '';
-    if (connected) {
-      spotifyBox.append(h('span.badge.badge-ok', { text: '✓ Spotify connecté' }),
-        btn('Déconnecter', { sm: true, onClick: async () => { await playlist.disconnectSpotify(); render(root); } }));
-    } else if (clientId) {
-      spotifyBox.append(h('span.badge.badge-warn', { text: 'Spotify non connecté' }),
-        btn('Connecter Spotify', { sm: true, variant: 'btn-primary', onClick: async () => {
-          try { await playlist.connectSpotify('matcher'); } catch (e) { toast(e.message, 'err'); }
-        } }));
-    } else {
-      spotifyBox.append(h('span.badge.badge-warn', { text: 'Spotify à configurer' }),
-        h('span', { text: 'Deezer marche sans rien configurer.' }),
-        btn('Configurer', { sm: true, onClick: () => document.dispatchEvent(new CustomEvent('nav', { detail: 'settings' })) }));
-    }
-  })();
+  const spotifyBox = h('div.small.muted-3', { style: { marginTop: '4px' },
+    text: 'Spotify ou Deezer — playlist publique, rien à configurer.' });
+  playlist.isConnected().then((ok) => {
+    if (ok) spotifyBox.textContent = 'Spotify connecté : tes playlists se chargent en entier, même au-delà de 100 titres. Deezer : sans limite.';
+  });
 
   /* ---- Sources alternatives (repli) ---- */
   const textArea = h('textarea.textarea', {
@@ -168,12 +160,27 @@ function formScreen(root) {
             if (el) el.textContent = label || `${n} titres récupérés…`;
           });
           entries = pl.entries; autoName = pl.name;
+          if (pl.viaCompte) {
+            toast(`${pl.entries.length} titres chargés en entier via ton compte Spotify.`, 'ok');
+          } else if (pl.tronque && pl.compteEssaye) {
+            toast('Playlist de quelqu\'un d\'autre : Spotify n\'en montre que les 100 premiers titres. Pour tout avoir : ouvre-la dans Spotify, Cmd+A puis Cmd+C, et colle le tout dans « Autre source ».', '');
+          } else if (pl.tronque && !(await playlist.isConnected())) {
+            ui.screen = 'form'; render(root);
+            const connecter = await confirmDialog(
+              'Playlist tronquée à 100 titres',
+              'L\'aperçu public Spotify s\'arrête à 100. Si c\'est TA playlist, connecte ton compte Spotify : elle se chargera en entier et le match repartira tout seul. Sinon, continue avec les 100 premiers.',
+              'Connecter mon Spotify');
+            if (connecter) {
+              await db.setMeta('k7Reprise', { url, name: nameInput.value.trim() });
+              await playlist.connectSpotify('matcher');
+              return;
+            }
+            ui.screen = 'running'; render(root);
+          }
         } catch (e) {
           ui.screen = 'form'; render(root);
-          if (e.message === 'NOT_CONNECTED') toast('Connecte Spotify d\'abord (bouton ci-dessus).', 'err');
-          else if (e.message === 'SHORT_LINK') shortLinkHelp(e.shortLink);
-          else if (e.message === 'SPOTIFY_NO_PLAYLIST_ACCESS' || e.message === 'SPOTIFY_FORBIDDEN') spotifyBlockedHelp(e.playlistName, url);
-          else toast(e.message, 'err');
+          if (e.message === 'SHORT_LINK') shortLinkHelp(e.shortLink);
+          else toast('Playlist illisible. Vérifie qu\'elle est publique (partagée par lien) — ou colle les titres dans « Autre source ».', 'err');
           return;
         }
       } else if (fileEntries) {
@@ -196,8 +203,7 @@ function formScreen(root) {
             if (r.refus) toast(`${r.refus} titre(s) n'ont pas pu être lus.`, 'err');
           } catch (e) {
             ui.screen = 'form'; render(root);
-            if (e.message === 'NOT_CONNECTED') toast('Connecte Spotify d\'abord.', 'err');
-            else spotifyBlockedHelp(null, txt);
+            toast('Ces liens de titres n\'ont pas pu être lus. Colle plutôt l\'URL de la playlist, ou une liste « Artiste - Titre ».', 'err');
             return;
           }
         } else {
@@ -209,6 +215,17 @@ function formScreen(root) {
       await run(entries, nameInput.value.trim() || autoName || 'Match du ' + new Date().toLocaleDateString('fr-FR'), dedupe.checked, root);
     },
   });
+
+  /* Retour d'autorisation Spotify : on reprend le match là où il en était. */
+  (async () => {
+    const reprise = await db.getMeta('k7Reprise', null);
+    if (!reprise?.url || !(await playlist.isConnected())) return;
+    await db.setMeta('k7Reprise', null);
+    urlInput.value = reprise.url; ui.url = reprise.url;
+    if (reprise.name) nameInput.value = reprise.name;
+    toast('Spotify connecté — on recharge ta playlist en entier.', 'ok');
+    launch.click();
+  })();
 
   return h('div.card', {},
     h('div.card-head', {},
@@ -240,6 +257,35 @@ function shortLinkHelp(url) {
       { label: 'Fermer' },
       { label: 'Ouvrir le lien', cls: 'btn-primary', onClick: () => window.open(url, '_blank', 'noopener') },
     ],
+  });
+}
+
+/**
+ * Cas le plus fréquent : la playlist appartient à quelqu'un d'autre. Depuis
+ * février 2026 Spotify n'en livre plus le contenu, même si elle est publique.
+ * Deux issues simples, on les explique plutôt que d'afficher « 403 ».
+ */
+function spotifyNotYoursHelp(playlistName, ownerName) {
+  const li = (...c) => h('li', { style: { marginBottom: '8px' } }, ...c);
+  modal({
+    title: 'Cette playlist ne t\'appartient pas',
+    width: '640px',
+    body: h('div.grid', { style: { gap: '14px' } },
+      h('p', {},
+        playlistName ? h('strong', { text: '« ' + playlistName + ' »' }) : 'Cette playlist',
+        ' a été créée par ', h('strong', { text: ownerName || 'un autre utilisateur' }), '.'),
+      h('p.muted.small', { text: 'Depuis février 2026, Spotify ne donne le contenu d\'une playlist qu\'à son propriétaire ou à ses collaborateurs — même quand elle est publique. Tes propres playlists, elles, fonctionnent parfaitement.' }),
+      h('div', { style: { padding: '14px', borderRadius: 'var(--r-ctl)', background: 'var(--surface-2)' } },
+        h('strong', { text: 'Deux solutions, 30 secondes chacune :' }),
+        h('ol', { style: { margin: '10px 0 0', paddingLeft: '20px', lineHeight: '1.6' } },
+          li(h('strong', { text: 'La recopier chez toi' }), ' — dans Spotify, ouvre la playlist, ',
+            h('strong', { text: 'Ctrl/Cmd + A' }), ' pour tout sélectionner, clic droit → ',
+            h('em', { text: '« Ajouter à une playlist » → « Nouvelle playlist »' }),
+            '. Colle ensuite ici le lien de TA copie : elle sera lue directement.'),
+          li(h('strong', { text: 'Copier les titres' }), ' — même sélection, puis ',
+            h('strong', { text: 'Ctrl/Cmd + C' }), ', et colle dans « Autre source » ci-dessous. ',
+            'K7 reconnaît les liens et récupère les titres un par un, sans rien copier dans ton compte.')))),
+    actions: [{ label: 'Compris', cls: 'btn-primary' }],
   });
 }
 
@@ -328,17 +374,42 @@ function resultsScreen(root) {
     clickableStat(s.total, 'Total', '', 'all', root),
     clickableStat(s.review, 'À vérifier', 'g-purple', 'review', root),
     clickableStat(s.matched, 'Matchés', 'g-green', 'matched', root),
-    stat(s.alternatives, 'Alternatives', 'g-blue'),
+    clickableStat(s.alternatives, 'Alternatives', 'g-blue', 'alts', root),
     clickableStat(s.missing, 'À récupérer', '', 'missing', root),
   );
+
+  // Repérer les correspondances dont la version retenue est en dessous de 320 kbps
+  // (hors « débit inconnu ») : c'est ce qui gâche une prépa de playlist.
+  const chosenOf = (r) => r.candidates.find((c) => c.track.id === r.chosenId)?.track || null;
+  const isLowQ = (r) => { const t = chosenOf(r); if (!t) return false; return ['low', 'bad'].includes(quality(t).level); };
+  const lowQ = session.rows.filter(isLowQ);
 
   const rows = session.rows.filter((r) => {
     if (ui.filter === 'all') return true;
     if (ui.filter === 'missing') return !r.chosenId;
     if (ui.filter === 'matched') return r.chosenId && r.confirmed;
     if (ui.filter === 'review') return r.chosenId && !r.confirmed;
+    if (ui.filter === 'alts') return (r.altIds || []).length > 0;
+    if (ui.filter === 'lowq') return isLowQ(r);
     return true;
   });
+
+  const qualityBanner = lowQ.length
+    ? h('div.card-pad', {
+        style: {
+          margin: '0 0 16px', padding: '10px 14px', borderRadius: '10px',
+          background: 'color-mix(in srgb, var(--warn) 12%, transparent)',
+          border: '1px solid color-mix(in srgb, var(--warn) 40%, transparent)',
+          display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap',
+        },
+      },
+      h('span', { style: { color: 'var(--warn)', fontWeight: '600' },
+        text: `⚠ ${lowQ.length} morceau(x) en dessous de 320 kbps` }),
+      h('span.small.muted', { text: 'à remplacer par une meilleure version avant de jouer.' }),
+      h('div.spacer'),
+      btn(ui.filter === 'lowq' ? 'Voir tout' : 'Voir lesquels', { sm: true,
+        onClick: () => { ui.filter = ui.filter === 'lowq' ? 'all' : 'lowq'; render(root); } }))
+    : null;
 
   const list = h('div', {}, rows.length
     ? rows.map((r) => matchRow(r, session.rows.indexOf(r) + 1, root, persist))
@@ -361,6 +432,7 @@ function resultsScreen(root) {
       )),
     h('div.card-pad', {},
       counters,
+      qualityBanner,
       h('div.row', { style: { marginBottom: '16px' } },
         btn('Exporter', { variant: 'btn-primary', ico: 'download', onClick: () => doExport() }),
         btn('', { ico: 'settings', title: 'Paramètres d\'export', onClick: (e) => exportSettings(e.currentTarget, root) }),
@@ -436,7 +508,16 @@ async function memorize(r) {
 function candidateList(r, root, persist) {
   const box = h('div.cand-list');
 
-  for (const c of r.candidates) {
+  // Par défaut : les 6 meilleures versions. « Voir tout » déroule le reste.
+  // La version choisie et les alternatives restent toujours visibles, même
+  // si elles sont classées plus loin.
+  const APERCU = 6;
+  const toutVoir = ui.showAll.has(r.id) || r.candidates.length <= APERCU;
+  const visibles = toutVoir ? r.candidates : r.candidates.filter((c, i) =>
+    i < APERCU || c.track.id === r.chosenId || (r.altIds || []).includes(c.track.id));
+  const nCaches = r.candidates.length - visibles.length;
+
+  for (const c of visibles) {
     const isChosen = r.chosenId === c.track.id;
     const isAlt = (r.altIds || []).includes(c.track.id);
     box.append(h('div.cand' + (isChosen ? '.chosen' : '') + (isAlt ? '.alt' : ''), {},
@@ -471,6 +552,22 @@ function candidateList(r, root, persist) {
           h('span.muted-3.small.mono', { text: fmtDur(c.track.duration) }))),
       h('div.score', { style: { color: c.score >= 0.9 ? 'var(--ok)' : c.score >= 0.6 ? 'var(--warn)' : 'var(--text-3)' },
         text: Math.round(c.score * 100) + ' %' })));
+  }
+
+  if (nCaches > 0) {
+    box.append(h('div.cand', { style: { gridTemplateColumns: '1fr' } },
+      h('button.btn.btn-ghost', {
+        style: { justifySelf: 'start', fontSize: '13px' },
+        text: `Voir les ${nCaches} autres version(s) ▾`,
+        onclick: () => { ui.showAll.add(r.id); render(root); },
+      })));
+  } else if (ui.showAll.has(r.id) && r.candidates.length > APERCU) {
+    box.append(h('div.cand', { style: { gridTemplateColumns: '1fr' } },
+      h('button.btn.btn-ghost', {
+        style: { justifySelf: 'start', fontSize: '13px' },
+        text: 'Réduire ▴',
+        onclick: () => { ui.showAll.delete(r.id); render(root); },
+      })));
   }
 
   box.append(h('div.cand', { style: { gridTemplateColumns: '22px 1fr' } },
@@ -523,10 +620,10 @@ function exportSettings(anchor, root) {
         onchange: (e) => { ui.exportSets[key] = e.target.checked; } }),
       h('span', {}, label, h('span.muted-3.small', { text: ` (${count})` }))),
   });
-  const fmt = (key, label, hint) => ({
+  const fmt = (bag, key, label, hint) => ({
     raw: h('label.check', {},
-      h('input', { type: 'checkbox', checked: ui.exportFormats[key],
-        onchange: (e) => { ui.exportFormats[key] = e.target.checked; } }),
+      h('input', { type: 'checkbox', checked: bag[key],
+        onchange: (e) => { bag[key] = e.target.checked; } }),
       h('span', {}, label, hint ? h('span.muted-3.small', { text: ' ' + hint }) : null)),
   });
   popMenu(anchor, [
@@ -535,21 +632,26 @@ function exportSettings(anchor, root) {
     set('alt', 'Alternatives', b.alt.length),
     set('missing', 'À récupérer', b.missing.length),
     '-',
-    { label: 'Dans quel format', header: true },
-    fmt('crate', '.crate', '(Serato)'),
-    fmt('m3u8', '.m3u8', '(iTunes, autres lecteurs)'),
-    fmt('csv', '.csv'),
-    fmt('pdf', '.pdf'),
+    { label: 'Format des morceaux possédés', header: true },
+    fmt(ui.formatsLib, 'm3u8', '.m3u8', '(iTunes / Musique)'),
+    fmt(ui.formatsLib, 'crate', '.crate', '(Serato)'),
+    fmt(ui.formatsLib, 'itunes', '.xml', '(plist Apple)'),
+    fmt(ui.formatsLib, 'csv', '.csv'),
+    fmt(ui.formatsLib, 'pdf', '.pdf', '(liste imprimable)'),
+    '-',
+    { label: 'Format des « à récupérer »', header: true },
+    fmt(ui.formatsMissing, 'pdf', '.pdf', '(liste de courses)'),
+    fmt(ui.formatsMissing, 'csv', '.csv'),
   ]);
 }
 
 function doExport() {
   const b = buckets();
   const base = slug(session.name);
-  const F = ui.exportFormats, S = ui.exportSets;
+  const F = ui.formatsLib, FM = ui.formatsMissing, S = ui.exportSets;
 
   if (!S.main && !S.alt && !S.missing) { toast('Choisis au moins un lot (roue crantée).', 'err'); return; }
-  if (!F.crate && !F.m3u8 && !F.csv && !F.pdf) { toast('Choisis au moins un format (roue crantée).', 'err'); return; }
+  if ((S.main || S.alt) && !F.itunes && !F.crate && !F.m3u8 && !F.csv && !F.pdf) { toast('Choisis un format pour les morceaux possédés (roue crantée).', 'err'); return; }
 
   // Un lot = une liste de morceaux de la bibliothèque
   const lots = [];
@@ -559,6 +661,17 @@ function doExport() {
   let done = 0;
   for (const lot of lots) {
     if (!lot.tracks.length) { toast(`${lot.label} : aucun morceau à exporter.`, 'err'); continue; }
+    if (F.itunes) {
+      const nom = `K7 — ${session.name}${lot.suffix ? ' — alternatives' : ''}`;
+      const r = exportItunesXML(lot.tracks, nom, base + lot.suffix + '-itunes.xml');
+      if (!r.included.length) toast(`${lot.label} : aucun morceau n'a de chemin de fichier, impossible de créer la playlist iTunes.`, 'err');
+      else {
+        toast(`Playlist iTunes créée — ${r.included.length} morceau(x)` +
+          (r.skipped.length ? `, ${r.skipped.length} ignoré(s) faute de chemin` : '') +
+          '. Dans Musique : Fichier → Bibliothèque → Importer une liste de lecture…', 'ok');
+        done++;
+      }
+    }
     if (F.crate) { const r = exportCrate(lot.tracks, `K7 — ${session.name}${lot.suffix ? ' — alternatives' : ''}`); crateToast(r.included, r.skipped); done++; }
     if (F.m3u8) { exportM3U8(lot.tracks, base + lot.suffix + '.m3u8'); done++; }
     if (F.csv) {
@@ -577,15 +690,15 @@ function doExport() {
   if (S.missing) {
     if (!b.missing.length) toast('Rien à récupérer : tout est trouvé.', 'ok');
     else {
-      if (F.csv) {
+      if (FM.csv) {
         download(base + '-a-recuperer.csv', toCSV(b.missing.map((r, i) => ({ i: i + 1, ...r.source })), [
           { key: 'i', label: '#' }, { key: 'title', label: 'Titre' },
           { key: 'artist', label: 'Artiste' }, { key: (r) => fmtDur(r.duration), label: 'Durée' },
         ]), 'text/csv;charset=utf-8');
         done++;
       }
-      if (F.pdf) { printShoppingList(session); done++; }
-      if (!F.csv && !F.pdf) toast('« À récupérer » ne s\'exporte qu\'en CSV ou PDF.', 'err');
+      if (FM.pdf) { printShoppingList(session); done++; }
+      if (!FM.csv && !FM.pdf) toast('« À récupérer » ne s\'exporte qu\'en CSV ou PDF.', 'err');
     }
   }
   if (done) toast(`${done} fichier(s) généré(s)`, 'ok');

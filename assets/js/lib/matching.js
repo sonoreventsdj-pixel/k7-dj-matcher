@@ -149,7 +149,7 @@ function scorePair(q, cand) {
  * Rapproche une entrée de playlist avec la bibliothèque.
  * @returns { candidates: [{track, score, variantDiff}], status }
  */
-export function matchOne(entry, index, { maxCandidates = 6 } = {}) {
+export function matchOne(entry, index, { maxCandidates = 40 } = {}) {
   const q = {
     nTitle: norm(entry.title),
     bTitle: baseTitle(entry.title),

@@ -53,6 +53,81 @@ export function exportM3U8(tracks, filename = 'playlist.m3u8') {
   download(filename, toM3U8(tracks), 'audio/x-mpegurl');
 }
 
+/* ------------------------- Playlist iTunes (.xml) ------------------------ */
+/* Fichier plist qu'iTunes / Musique importe tel quel :
+   Fichier -> Bibliothèque -> Importer une liste de lecture…
+   Les morceaux sont retrouvés par leur chemin de fichier (Location) : ils
+   doivent donc exister dans la bibliothèque locale — c'est le cas puisqu'ils
+   en viennent. */
+const xmlEsc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/** Ré-encode un chemin file:// lisible en URL valide pour iTunes. */
+function itunesLocation(loc) {
+  const s = String(loc || '');
+  if (!s.startsWith('file://')) return s;
+  try {
+    // encodeURI garde / : et les non-ASCII sont %-encodés ; on protège # et ?
+    return encodeURI(s).replace(/#/g, '%23').replace(/\?/g, '%3F');
+  } catch { return s; }
+}
+
+export function toItunesXML(tracks, playlistName) {
+  const included = [];
+  const skipped = [];
+  for (const t of tracks) (t.location ? included : skipped).push(t);
+
+  const trackDicts = included.map((t, i) => {
+    const id = 1001 + i;
+    const lines = [
+      `\t\t\t<key>Track ID</key><integer>${id}</integer>`,
+      `\t\t\t<key>Name</key><string>${xmlEsc(t.title)}</string>`,
+    ];
+    if (t.artist) lines.push(`\t\t\t<key>Artist</key><string>${xmlEsc(t.artist)}</string>`);
+    if (t.album) lines.push(`\t\t\t<key>Album</key><string>${xmlEsc(t.album)}</string>`);
+    if (t.duration) lines.push(`\t\t\t<key>Total Time</key><integer>${Math.round(t.duration * 1000)}</integer>`);
+    lines.push('\t\t\t<key>Track Type</key><string>File</string>');
+    lines.push(`\t\t\t<key>Location</key><string>${xmlEsc(itunesLocation(t.location))}</string>`);
+    return `\t\t<key>${id}</key>\n\t\t<dict>\n${lines.join('\n')}\n\t\t</dict>`;
+  }).join('\n');
+
+  const items = included.map((t, i) => `\t\t\t\t<dict><key>Track ID</key><integer>${1001 + i}</integer></dict>`).join('\n');
+
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>Major Version</key><integer>1</integer>
+\t<key>Minor Version</key><integer>1</integer>
+\t<key>Features</key><integer>5</integer>
+\t<key>Tracks</key>
+\t<dict>
+${trackDicts}
+\t</dict>
+\t<key>Playlists</key>
+\t<array>
+\t\t<dict>
+\t\t\t<key>Name</key><string>${xmlEsc(playlistName)}</string>
+\t\t\t<key>Playlist ID</key><integer>1</integer>
+\t\t\t<key>All Items</key><true/>
+\t\t\t<key>Playlist Items</key>
+\t\t\t<array>
+${items}
+\t\t\t</array>
+\t\t</dict>
+\t</array>
+</dict>
+</plist>
+`;
+  return { xml, included, skipped };
+}
+
+/** Génère la playlist iTunes et la télécharge. @returns { included, skipped } */
+export function exportItunesXML(tracks, playlistName, filename) {
+  const { xml, included, skipped } = toItunesXML(tracks, playlistName);
+  if (included.length) download(filename, xml, 'text/xml;charset=utf-8');
+  return { included, skipped };
+}
+
 /* ---------------------------- Serato .crate ----------------------------- */
 /**
  * Génère une crate Serato et la télécharge.

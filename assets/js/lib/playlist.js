@@ -86,7 +86,10 @@ const SCOPES = 'playlist-read-private playlist-read-collaborative';
 
 export const redirectUri = () => location.origin + location.pathname;
 
-export const getClientId = () => db.getMeta('spotifyClientId', '');
+/* Identifiant public de l'application Spotify « K7 » (pas un secret : il est
+   visible dans l'URL d'autorisation). Évite toute configuration à la main. */
+const DEFAULT_CLIENT_ID = 'ca02096c48b3417c8ad5d08d04741f16';
+export const getClientId = async () => (await db.getMeta('spotifyClientId', '')) || DEFAULT_CLIENT_ID;
 export const setClientId = (v) => db.setMeta('spotifyClientId', String(v || '').trim());
 
 async function sha256(text) {
@@ -193,12 +196,12 @@ async function spotifyGet(url, token) {
 /**
  * Lecture d'une playlist ou d'un album Spotify.
  *
- * Attention : depuis le durcissement de l'accès développeur, une application en
- * « Development mode » peut lire les métadonnées d'une playlist mais PAS son
- * contenu — /playlists/{id}/tracks renvoie 403, et l'objet `tracks` disparaît de
- * la réponse. Les albums et la recherche, eux, restent accessibles. On distingue
- * donc explicitement ce cas pour pouvoir l'expliquer à l'utilisateur au lieu de
- * lui renvoyer une playlist vide.
+ * Depuis la refonte de février 2026 :
+ *  - /playlists/{id}/tracks a été renommé /playlists/{id}/items ;
+ *  - le contenu n'est renvoyé QUE pour les playlists dont l'utilisateur connecté
+ *    est propriétaire ou collaborateur. Pour celle de quelqu'un d'autre, même
+ *    publique, l'API répond 403.
+ * On distingue donc les deux cas pour pouvoir dire précisément quoi faire.
  */
 async function fetchSpotify({ id, kind }, onProgress) {
   const token = await accessToken();
@@ -206,10 +209,23 @@ async function fetchSpotify({ id, kind }, onProgress) {
   const head = await spotifyGet(`https://api.spotify.com/v1/${isAlbum ? 'albums' : 'playlists'}/${id}`, token);
   const name = head.name || (isAlbum ? 'Album Spotify' : 'Playlist Spotify');
 
+  // Playlist appartenant à quelqu'un d'autre : inutile d'essayer, on explique.
+  if (!isAlbum) {
+    const owner = head.owner?.id || null;
+    let me = null;
+    try { me = (await spotifyGet('https://api.spotify.com/v1/me', token))?.id || null; } catch { /* tant pis */ }
+    if (owner && me && owner !== me && !head.collaborative) {
+      const err = new Error('SPOTIFY_NOT_YOURS');
+      err.playlistName = name;
+      err.ownerName = head.owner?.display_name || owner;
+      throw err;
+    }
+  }
+
   const entries = [];
   const push = (items) => {
     for (const it of items || []) {
-      const t = isAlbum ? it : it?.track;
+      const t = isAlbum ? it : (it?.track || it?.item);
       if (!t?.name) continue;
       entries.push({
         title: t.name,
@@ -220,30 +236,29 @@ async function fetchSpotify({ id, kind }, onProgress) {
     }
   };
 
-  // Première page : parfois déjà incluse dans la réponse principale.
   push(head.tracks?.items);
   let next = head.tracks?.next;
 
-  // Sinon (ou pour la suite), on interroge l'endpoint dédié.
+  // Endpoint dédié : « items » depuis février 2026, « tracks » avant.
   if (!entries.length && !next) {
-    next = `https://api.spotify.com/v1/${isAlbum ? 'albums' : 'playlists'}/${id}/tracks?limit=100`;
+    const base = `https://api.spotify.com/v1/${isAlbum ? 'albums' : 'playlists'}/${id}/`;
+    for (const chemin of isAlbum ? ['tracks'] : ['items', 'tracks']) {
+      try {
+        const first = await spotifyGet(base + chemin + '?limit=50', token);
+        push(first.items);
+        next = first.next;
+        if (entries.length || next) break;
+      } catch (e) {
+        if (e.message !== 'SPOTIFY_FORBIDDEN') throw e;
+      }
+    }
   }
 
   let guard = 0;
-  while (next && guard++ < 40) {
-    let page;
-    try {
-      page = await spotifyGet(next, token);
-    } catch (e) {
-      if (e.message === 'SPOTIFY_FORBIDDEN' && !entries.length) {
-        const err = new Error('SPOTIFY_NO_PLAYLIST_ACCESS');
-        err.playlistName = name;
-        throw err;
-      }
-      throw e;
-    }
+  while (next && guard++ < 60) {
+    const page = await spotifyGet(next, token);
     push(page.items);
-    onProgress?.(entries.length, head.tracks?.total || entries.length);
+    onProgress?.(entries.length, null, `Lecture de la playlist… ${entries.length} titres`);
     next = page.next;
   }
 
@@ -350,6 +365,34 @@ export async function resolveShortLink(url) {
   throw e;
 }
 
+/* ------------------------- Passerelle serveur ---------------------------
+   Une petite fonction Netlify interroge Spotify au nom de l'APPLICATION
+   (« client credentials ») et non au nom de l'utilisateur : les playlists
+   publiques d'autres personnes redeviennent lisibles. C'est la voie
+   privilégiée ; on retombe sur le flux utilisateur si elle n'est pas
+   configurée.
+   ---------------------------------------------------------------------- */
+
+export async function gatewayAvailable() {
+  try {
+    const r = await fetch('/.netlify/functions/plread?playlist=x', { signal: AbortSignal.timeout(6000) });
+    return r.status !== 404 && r.status !== 501;     // 400 = joignable mais identifiant refusé
+  } catch { return false; }
+}
+
+async function fetchViaGateway({ id, kind }, onProgress) {
+  onProgress?.(0, null, 'Lecture de la playlist…');
+  const param = kind === 'album' ? 'album' : 'playlist';
+  const r = await fetch(`/.netlify/functions/plread?${param}=${encodeURIComponent(id)}`, {
+    signal: AbortSignal.timeout(45000),
+  });
+  if (r.status === 404) { const e = new Error('GATEWAY_ABSENT'); throw e; }
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 501) { const e = new Error('GATEWAY_ABSENT'); e.detail = j.detail; throw e; }
+  if (!r.ok) { const e = new Error(j.error || 'Passerelle Spotify indisponible.'); e.gateway = true; throw e; }
+  return { name: j.name, entries: j.entries || [], tronque: !!j.tronque };
+}
+
 /* ------------------------------ Façade ---------------------------------- */
 /** @returns {{provider, name, entries:[{title,artist,album,duration}]}} */
 export async function fetchPlaylist(url, onProgress) {
@@ -364,5 +407,32 @@ export async function fetchPlaylist(url, onProgress) {
   }
 
   if (target.provider === 'deezer') return { provider: 'deezer', ...(await fetchDeezer(target)) };
+
+  // Spotify : on tente d'abord la passerelle serveur, puis TOUJOURS le compte
+  // connecté si elle n'a rien donné. Une passerelle absente, mal configurée ou
+  // refusée par Spotify ne doit jamais empêcher de lire ses propres playlists.
+  let viaServeur = null;
+  try {
+    viaServeur = await fetchViaGateway(target, onProgress);
+  } catch (e) {
+    if (e.message === 'NOT_CONNECTED') throw e;
+  }
+
+  // Playlist tronquée à 100 par l'aperçu public : si le compte Spotify de
+  // l'utilisateur est connecté, on recharge l'intégralité via l'API officielle
+  // (elle marche pour SES playlists et celles où il collabore). Si Spotify
+  // refuse (playlist de quelqu'un d'autre), on garde les 100 de la passerelle.
+  if (viaServeur?.entries.length && viaServeur.tronque && await isConnected()) {
+    try {
+      onProgress?.(viaServeur.entries.length, null, 'Plus de 100 titres : chargement complet via ton compte…');
+      const complet = await fetchSpotify(target, onProgress);
+      if (complet.entries.length > viaServeur.entries.length) {
+        return { provider: 'spotify', ...complet, tronque: false, viaCompte: true };
+      }
+    } catch { /* pas sa playlist : on garde l'aperçu public */ }
+    return { provider: 'spotify', ...viaServeur, compteEssaye: true };
+  }
+
+  if (viaServeur?.entries.length) return { provider: 'spotify', ...viaServeur };
   return { provider: 'spotify', ...(await fetchSpotify(target, onProgress)) };
 }

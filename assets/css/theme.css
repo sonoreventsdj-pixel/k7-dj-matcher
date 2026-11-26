@@ -227,7 +227,7 @@ table.tbl th.sortable { cursor: pointer; user-select: none; }
 table.tbl th.sortable:hover { color: var(--text-2); }
 table.tbl td { padding: 10px 12px; border-bottom: 1px dashed var(--line); vertical-align: middle; }
 table.tbl tbody tr:hover td { background: var(--surface-2); }
-table.tbl td.num, table.tbl th.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.tbl td.num, table.tbl th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .cell-edit { background: transparent; border: 1px solid transparent; border-radius: 7px; color: inherit;
   font: inherit; padding: 4px 6px; width: 100%; min-width: 40px; }
 .cell-edit:hover { border-color: var(--line-strong); }

@@ -5,9 +5,9 @@ import { h, mount, toast, confirmDialog, pickFile, readText, download } from '..
 import * as store from '../../core/store.js';
 import * as db from '../../core/db.js';
 import * as memory from '../../lib/memory.js';
-import * as playlist from '../../lib/playlist.js';
 import { exportJSON, toCSV } from '../../lib/exporters/index.js';
 import { demoTracks, DEMO_PLAYLIST } from '../../core/seed.js';
+import * as playlist from '../../lib/playlist.js';
 import { btn } from '../components.js';
 
 export function render(root) {
@@ -123,40 +123,27 @@ export function render(root) {
   })();
 
   /* ------------------------------- Spotify ------------------------------ */
-  const clientInput = h('input.input', { placeholder: 'Client ID Spotify', value: '' });
-  const spotifyStatus = h('div.row.small');
+  const compteRow = h('div.row.row-tight', {});
   const spotifyCard = h('div.card', {},
-    h('div.card-head', {}, h('div', {}, h('h2', { text: 'Connexion Spotify' }),
-      h('div.sub', { text: 'Nécessaire uniquement pour lire une URL de playlist Spotify. Deezer fonctionne sans configuration.' }))),
-    h('div.card-pad', { style: { paddingBottom: 0 } },
-      h('div', { style: { padding: '13px 15px', borderRadius: 'var(--r-ctl)',
-          border: '1px solid color-mix(in srgb, var(--warn) 45%, transparent)',
-          background: 'color-mix(in srgb, var(--warn) 9%, transparent)' } },
-        h('strong', { text: '⚠ Limite imposée par Spotify' }),
-        h('p.small', { style: { marginTop: '5px' }, text: 'Une application personnelle non validée par Spotify peut lire le NOM d\'une playlist mais pas la LISTE DE SES TITRES — y compris tes propres playlists. Les albums et la recherche, eux, restent accessibles.' }),
-        h('p.small.muted', { style: { marginTop: '5px' }, text: 'Contournement : passer par Deezer, ou exporter la playlist Spotify en CSV (exportify.net) et déposer le fichier dans le Matcher.' }))),
-    h('div.card-pad.grid', { style: { gap: '14px' } },
-      h('ol.muted.small', { style: { margin: 0, paddingLeft: '18px', lineHeight: '1.9' } },
-        h('li', {}, 'Va sur ', h('a', { href: 'https://developer.spotify.com/dashboard', target: '_blank', rel: 'noopener', text: 'developer.spotify.com/dashboard' }), ' et crée une application (gratuit).'),
-        h('li', {}, 'Dans « Redirect URIs », colle exactement : ', h('code', { style: { background: 'var(--surface-2)', padding: '2px 6px', borderRadius: '6px' }, text: playlistRedirect() })),
-        h('li', {}, 'Coche « Web API », enregistre, puis copie le Client ID ci-dessous.')),
-      h('div.field', {}, h('span.label', { text: 'Client ID' }), clientInput),
-      h('div.row', {},
-        btn('Enregistrer', { variant: 'btn-primary', onClick: async () => {
-          await playlist.setClientId(clientInput.value);
-          toast('Client ID enregistré', 'ok'); render(root);
-        } }),
-        btn('Connecter Spotify', { onClick: async () => {
-          try { await playlist.connectSpotify('settings'); } catch (e) { toast(e.message, 'err'); }
-        } }),
-        btn('Déconnecter', { onClick: async () => { await playlist.disconnectSpotify(); toast('Déconnecté', 'ok'); render(root); } })),
-      spotifyStatus));
+    h('div.card-head', {}, h('div', {}, h('h2', { text: 'Spotify & Deezer' }),
+      h('div.sub', { text: 'Coller une URL de playlist suffit — rien à configurer.' }))),
+    h('div.card-pad.grid', { style: { gap: '10px' } },
+      h('div.row.row-tight', {}, h('span.badge.badge-ok', { text: '✓ Spotify' }),
+        h('span.small.muted', { text: 'toute playlist publique, même celle de quelqu\'un d\'autre (jusqu\'à 100 titres).' })),
+      h('div.row.row-tight', {}, h('span.badge.badge-ok', { text: '✓ Deezer' }),
+        h('span.small.muted', { text: 'sans limite de titres.' })),
+      compteRow));
   (async () => {
-    clientInput.value = await playlist.getClientId();
     const ok = await playlist.isConnected();
-    spotifyStatus.append(ok
-      ? h('span.badge.badge-ok', { text: '✓ Compte Spotify connecté' })
-      : h('span.badge.badge-warn', { text: 'Non connecté' }));
+    compteRow.append(
+      ok ? h('span.badge.badge-ok', { text: '✓ Compte connecté' }) : h('span.badge', { text: 'Compte non connecté' }),
+      h('span.small.muted', { text: ok
+        ? 'tes playlists se chargent en entier, même au-delà de 100 titres.'
+        : 'connecte ton compte pour charger TES playlists en entier au-delà de 100 titres.' }),
+      h('div.spacer'),
+      ok
+        ? btn('Déconnecter', { sm: true, onClick: async () => { await playlist.disconnectSpotify(); toast('Compte Spotify déconnecté', 'ok'); render(root); } })
+        : btn('Connecter mon Spotify', { sm: true, variant: 'btn-primary', onClick: () => playlist.connectSpotify('settings') }));
   })();
 
   /* -------------------------------- À propos ---------------------------- */
@@ -170,4 +157,3 @@ export function render(root) {
     memCard, spotifyCard, appearance, team, data, about));
 }
 
-const playlistRedirect = () => location.origin + location.pathname;
